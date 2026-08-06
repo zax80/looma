@@ -1,0 +1,19 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+*.suo
+
+## Rider / VSCode
+.idea/
+.vscode/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Data / local models (never commit indexed content or pulled models)
+/data/
+/models/
+*.log

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- NOTE: version unverified — this sandbox has no NuGet/network access.
+         Run `dotnet restore` locally and bump to the latest net10.0-compatible
+         release before building. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.4.0" />
+  </ItemGroup>
+
+</Project>

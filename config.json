@@ -1,0 +1,79 @@
+{
+  "DomainName": "Looma",
+  "Version": "2.0.0",
+  "Deployment": {
+    "Mode": "Standalone",
+    "McpServerEndpoint": null
+  },
+  "Models": {
+    "BaseModel": {
+      "Provider": "Ollama",
+      "Endpoint": "http://localhost:11434",
+      "Model": "qwen3:8b",
+      "ContextSize": 8192
+    },
+    "EmbeddingModel": {
+      "Provider": "Ollama",
+      "Endpoint": "http://localhost:11434",
+      "Model": "nomic-embed-text",
+      "Dimensions": 768
+    },
+    "VisionModel": {
+      "Provider": "Ollama",
+      "Endpoint": "http://localhost:11434",
+      "Model": "qwen2.5-vl:7b"
+    },
+    "ImageEmbeddingModel": {
+      "Provider": "Local.OnnxClip",
+      "ModelPath": "./models/clip-vit-b32.onnx",
+      "Dimensions": 512
+    },
+    "SpeechToTextModel": {
+      "Provider": "Local.Whisper",
+      "ModelPath": "./models/whisper-base.bin"
+    }
+  },
+  "VectorStore": {
+    "Provider": "Qdrant",
+    "Endpoint": "http://localhost:6333",
+    "ApiKey": null,
+    "Collections": {
+      "Documents": "documents",
+      "Images": "images"
+    }
+  },
+  "Redis": {
+    "Enabled": false,
+    "Endpoint": "localhost:6379",
+    "Password": null
+  },
+  "Mcp": {
+    "Enabled": false,
+    "Auth": {
+      "Mode": "ApiKey",
+      "ApiKeyEnvVar": "LOOMA_MCP_API_KEY"
+    }
+  },
+  "RAG": {
+    "Sources": [
+      {
+        "Type": "FileSystem",
+        "Path": "./data",
+        "FileTypes": [".pdf", ".docx", ".xlsx", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".wav", ".mp3"],
+        "Recursive": true
+      }
+    ],
+    "ChunkSize": 400,
+    "ChunkOverlap": 50,
+    "TopK": 5,
+    "MinRelevanceScore": 0.7
+  },
+  "Security": {
+    "AllowedInferenceHosts": ["localhost", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+    "BlockNonLocalEndpoints": true
+  },
+  "Agents": {
+    "Enabled": false,
+    "Definitions": []
+  }
+}
