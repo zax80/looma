@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Looma.Core\Looma.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Versions pinned centrally in Directory.Packages.props.
+
+         Deliberately talking to Qdrant over its plain HTTP REST API with
+         HttpClient + System.Text.Json rather than a Qdrant client package or
+         Microsoft.Extensions.VectorData.Abstractions — see CLAUDE.md
+         "Lessons": the VectorData abstractions package was net8.0-only and
+         cost real time last attempt. Qdrant's REST surface is small and
+         stable enough that a raw HTTP client is less risk than a third
+         dependency whose TFM support we can't currently verify. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+</Project>

@@ -4,4 +4,31 @@
     <ProjectReference Include="..\Looma.Core\Looma.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Versions pinned centrally in Directory.Packages.props.
+
+         IChatClient / IEmbeddingGenerator are Microsoft.Extensions.AI
+         abstractions, not vendor SDKs — depending on them here doesn't
+         violate "Application knows nothing about Qdrant/Ollama/MCP"; it's
+         exactly the same kind of dependency as depending on IVectorStore.
+         Options/Configuration.Abstractions are likewise transport-agnostic
+         contracts, used only so this project can bind its own RAG/embedding
+         settings and expose an AddLoomaApplicationUseCases DI extension,
+         mirroring the pattern already used in both Infrastructure projects. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PDF/DOCX/XLSX text extraction — offline, local-file-parsing libraries,
+         not a vendor/inference SDK, so this doesn't violate "Application
+         stays vendor-agnostic" the way calling Ollama/OpenAI directly would. -->
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+  </ItemGroup>
+
 </Project>

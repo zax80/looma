@@ -36,4 +36,16 @@ public interface IVectorStore
     Task<long> CountAsync(
         VectorCollection collection,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Drops every point in <paramref name="collection"/> (the collection
+    /// itself is recreated lazily by the next <see cref="EnsureCollectionAsync"/>
+    /// call). A no-op if the collection doesn't exist. Exists specifically
+    /// for recovering from stale/duplicate data — e.g. re-indexing with
+    /// <c>looma index --clear</c> — without needing to hit the vector
+    /// store's own admin API by hand.
+    /// </summary>
+    Task ClearCollectionAsync(
+        VectorCollection collection,
+        CancellationToken cancellationToken = default);
 }

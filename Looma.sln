@@ -6,6 +6,18 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Core", "src\Looma.Cor
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Application", "src\Looma.Application\Looma.Application.csproj", "{44656E23-DF2C-42FD-B6F3-9EBEDA933DAC}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.VectorStore.Qdrant", "src\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj", "{BE2057D1-E573-4DAC-BD76-B6C8EC461A6F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.VectorStore.Qdrant.Tests", "tests\Looma.Infrastructure.VectorStore.Qdrant.Tests\Looma.Infrastructure.VectorStore.Qdrant.Tests.csproj", "{28D733BA-7398-42FF-9D9C-EF8BDDF6C91D}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.Llm", "src\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj", "{DF9C92D4-331C-430C-AE76-9095965FC5DD}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.Llm.Tests", "tests\Looma.Infrastructure.Llm.Tests\Looma.Infrastructure.Llm.Tests.csproj", "{ABEBF81A-3637-4CB8-8F23-1A3F203FDBD2}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Application.Tests", "tests\Looma.Application.Tests\Looma.Application.Tests.csproj", "{3D061DF7-DEBC-45CA-BFE8-5DF8FDBFF166}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.CLI", "src\Looma.CLI\Looma.CLI.csproj", "{1F0DD209-63C7-45AF-A0B7-33410F219BA6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +32,30 @@ Global
 		{44656E23-DF2C-42FD-B6F3-9EBEDA933DAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{44656E23-DF2C-42FD-B6F3-9EBEDA933DAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{44656E23-DF2C-42FD-B6F3-9EBEDA933DAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BE2057D1-E573-4DAC-BD76-B6C8EC461A6F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BE2057D1-E573-4DAC-BD76-B6C8EC461A6F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BE2057D1-E573-4DAC-BD76-B6C8EC461A6F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BE2057D1-E573-4DAC-BD76-B6C8EC461A6F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{28D733BA-7398-42FF-9D9C-EF8BDDF6C91D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{28D733BA-7398-42FF-9D9C-EF8BDDF6C91D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{28D733BA-7398-42FF-9D9C-EF8BDDF6C91D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{28D733BA-7398-42FF-9D9C-EF8BDDF6C91D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DF9C92D4-331C-430C-AE76-9095965FC5DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DF9C92D4-331C-430C-AE76-9095965FC5DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DF9C92D4-331C-430C-AE76-9095965FC5DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DF9C92D4-331C-430C-AE76-9095965FC5DD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ABEBF81A-3637-4CB8-8F23-1A3F203FDBD2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ABEBF81A-3637-4CB8-8F23-1A3F203FDBD2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ABEBF81A-3637-4CB8-8F23-1A3F203FDBD2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ABEBF81A-3637-4CB8-8F23-1A3F203FDBD2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D061DF7-DEBC-45CA-BFE8-5DF8FDBFF166}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D061DF7-DEBC-45CA-BFE8-5DF8FDBFF166}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D061DF7-DEBC-45CA-BFE8-5DF8FDBFF166}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D061DF7-DEBC-45CA-BFE8-5DF8FDBFF166}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

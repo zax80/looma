@@ -215,7 +215,7 @@ model (chat, vision, STT) is swappable via config with zero data migration.
     "VisionModel": {
       "Provider": "Ollama",
       "Endpoint": "http://localhost:11434",
-      "Model": "qwen2.5-vl:7b"
+      "Model": "qwen2.5vl:7b"
     },
     "ImageEmbeddingModel": {
       "Provider": "Local.OnnxClip",

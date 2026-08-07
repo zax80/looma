@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Looma.Core\Looma.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Versions pinned centrally in Directory.Packages.props.
+
+         Using the official Microsoft.Extensions.AI.OpenAI adapter (backed by
+         the official OpenAI SDK) rather than hand-rolling IChatClient /
+         IEmbeddingGenerator against Ollama's OpenAI-compatible HTTP surface.
+         Unlike the Qdrant situation, this IS the sanctioned first-party
+         bridge for exactly this scenario (any OpenAI-compatible endpoint,
+         Ollama included — see OpenAIClientExtensions.AsIChatClient /
+         AsIEmbeddingGenerator), so reimplementing it by hand from partially
+         scraped docs would be strictly more risk, not less, and config.json
+         already documents talking to Ollama "over OpenAI-compatible HTTP". -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="System.ClientModel" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Local CLIP image embedding — see Directory.Packages.props for why
+         SkiaSharp over ImageSharp. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Local Whisper audio transcription — see Directory.Packages.props. -->
+    <PackageReference Include="Whisper.net" />
+    <PackageReference Include="Whisper.net.Runtime" />
+    <PackageReference Include="NAudio" />
+  </ItemGroup>
+
+</Project>

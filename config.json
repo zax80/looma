@@ -10,7 +10,8 @@
       "Provider": "Ollama",
       "Endpoint": "http://localhost:11434",
       "Model": "qwen3:8b",
-      "ContextSize": 8192
+      "ContextSize": 8192,
+      "DisableThinking": true
     },
     "EmbeddingModel": {
       "Provider": "Ollama",
@@ -21,16 +22,18 @@
     "VisionModel": {
       "Provider": "Ollama",
       "Endpoint": "http://localhost:11434",
-      "Model": "qwen2.5-vl:7b"
+      "Model": "qwen2.5vl:7b"
     },
     "ImageEmbeddingModel": {
       "Provider": "Local.OnnxClip",
       "ModelPath": "./models/clip-vit-b32.onnx",
+      "DownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model.onnx",
       "Dimensions": 512
     },
     "SpeechToTextModel": {
       "Provider": "Local.Whisper",
-      "ModelPath": "./models/whisper-base.bin"
+      "ModelPath": "./models/whisper-base.bin",
+      "DownloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
     }
   },
   "VectorStore": {
@@ -66,7 +69,15 @@
     "ChunkSize": 400,
     "ChunkOverlap": 50,
     "TopK": 5,
-    "MinRelevanceScore": 0.7
+    "MinRelevanceScore": 0.55,
+    "MaxAnswerTokens": null,
+    "AnswerTemperature": 0.1
+  },
+  "AnswerCache": {
+    "Enabled": true,
+    "FilePath": "./.looma/answer-cache.json",
+    "CollectionName": "answer_cache",
+    "SemanticSimilarityThreshold": 0.97
   },
   "Security": {
     "AllowedInferenceHosts": ["localhost", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],

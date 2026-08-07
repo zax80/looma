@@ -17,3 +17,6 @@ Thumbs.db
 /data/
 /models/
 *.log
+
+## Answer cache (local, may contain generated answers/citations)
+/.looma/

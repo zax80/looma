@@ -1,0 +1,83 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!--
+    Central package management: every package version for the whole solution
+    is pinned exactly once, here. This exists because of a concrete failure —
+    pinning Microsoft.Extensions.Configuration.Binder separately in two
+    csproj files at a version older than what
+    Microsoft.Extensions.Options.ConfigurationExtensions required
+    transitively caused an NU1605 downgrade error on first real `dotnet
+    restore`. Per CLAUDE.md: resolve version conflicts by aligning versions
+    deliberately across the whole solution in one pass, not by bumping one
+    project at a time — this file is that pass, and the mechanism that
+    should make it structurally impossible to regress.
+
+    All versions below were checked via web search against NuGet on
+    2026-08-06 (not restored/verified locally in the authoring sandbox) —
+    reconfirm nothing newer has shipped before relying on this long-term.
+  -->
+
+  <ItemGroup>
+    <!-- Microsoft.Extensions.AI -->
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.1" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.8.0" />
+
+    <!-- OpenAI SDK (used only from Infrastructure.Llm, pointed at Ollama's OpenAI-compatible endpoint) -->
+    <PackageVersion Include="OpenAI" Version="2.12.0" />
+    <PackageVersion Include="System.ClientModel" Version="1.14.0" />
+
+    <!-- Microsoft.Extensions.* (DI / Options / Configuration / Http) -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
+
+    <!-- Document extraction (PDF / DOCX / XLSX) — Application-layer, offline, no vendor lock-in -->
+    <PackageVersion Include="PdfPig" Version="0.1.15" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+
+    <!--
+      Image ingestion (Infrastructure.Llm only): CPU ONNX Runtime for local
+      CLIP inference (no cloud, no GPU requirement), SkiaSharp for
+      resize/crop/normalize preprocessing since System.Drawing.Common isn't
+      supported cross-platform. SixLabors.ImageSharp was tried first but
+      its 4.x line hard-fails the build without a paid Six Labors license
+      key ("No Six Labors license found") — a real build error, not a
+      hypothetical licensing concern, so it was dropped in favor of
+      SkiaSharp (MIT-licensed, no license key required).
+    -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
+    <PackageVersion Include="SkiaSharp" Version="4.151.0" />
+
+    <!--
+      Audio ingestion (Infrastructure.Llm only): Whisper.net is a .NET
+      binding for whisper.cpp (MIT-licensed, matches the brief's stated
+      choice). Whisper.net.Runtime is the CPU-inference native runtime
+      (cross-platform: Windows/Linux/macOS x64/ARM64 — no CUDA/GPU
+      requirement). NAudio provides WAV/MP3 reading and resampling to the
+      16kHz mono PCM format Whisper requires — the exact APIs used here
+      (WaveFileReader, Mp3FileReader, WdlResamplingSampleProvider,
+      StereoToMonoSampleProvider) match Whisper.net's own published
+      examples verbatim. NAudio's MP3 decoding relies on the OS media
+      framework, so it's Windows-verified only — see docs/model-setup.md.
+    -->
+    <PackageVersion Include="Whisper.net" Version="1.9.1" />
+    <PackageVersion Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageVersion Include="NAudio" Version="2.3.0" />
+
+    <!-- Testing -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>
