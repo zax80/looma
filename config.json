@@ -55,7 +55,8 @@
     "Auth": {
       "Mode": "ApiKey",
       "ApiKeyEnvVar": "LOOMA_MCP_API_KEY"
-    }
+    },
+    "AllowedHosts": ["localhost", "127.0.0.1", "::1"]
   },
   "RAG": {
     "Sources": [

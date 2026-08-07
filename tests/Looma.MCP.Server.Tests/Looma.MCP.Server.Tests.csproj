@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Looma.MCP.Server\Looma.MCP.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ApiKeyAuthorizerTests exercises Microsoft.AspNetCore.Http.HeaderDictionary
+         directly. FrameworkReference flows transitively through the
+         ProjectReference above in the common case, but pinning it explicitly
+         here removes any doubt rather than relying on that. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Versions pinned centrally in Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>

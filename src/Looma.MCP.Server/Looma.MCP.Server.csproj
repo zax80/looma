@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Looma.MCP.Server</RootNamespace>
+    <AssemblyName>looma-mcp-server</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Looma.Application\Looma.Application.csproj" />
+
+    <!-- Composition-root exception to "clients depend only on Application"
+         (CLAUDE.md rule 1), identical to Looma.CLI: Program.cs is the
+         standalone-server composition root and is the only file in this
+         project allowed to reference these namespaces. Tools/ depends only
+         on Looma.Application's use-case interfaces. -->
+    <ProjectReference Include="..\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj" />
+    <ProjectReference Include="..\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Versions pinned centrally in Directory.Packages.props.
+
+         Microsoft.Extensions.Configuration.Json / .Binder are deliberately
+         NOT referenced here even though Program.cs uses AddJsonFile/Get<T>()
+         — Microsoft.NET.Sdk.Web's FrameworkReference to Microsoft.AspNetCore.App
+         already ships both transitively, and NuGet's package-pruning flagged
+         the explicit references as redundant (NU1510) the first time this
+         was built for real. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+
+</Project>

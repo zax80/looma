@@ -18,6 +18,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Application.Tests", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.CLI", "src\Looma.CLI\Looma.CLI.csproj", "{1F0DD209-63C7-45AF-A0B7-33410F219BA6}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.MCP.Server", "src\Looma.MCP.Server\Looma.MCP.Server.csproj", "{2A6B0C3D-7E4F-4A1B-9C2D-3E4F5A6B7C8D}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.MCP.Server.Tests", "tests\Looma.MCP.Server.Tests\Looma.MCP.Server.Tests.csproj", "{3B7C1D4E-8F5A-4B2C-AD3E-4F5A6B7C8D9E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,6 +60,14 @@ Global
 		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1F0DD209-63C7-45AF-A0B7-33410F219BA6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A6B0C3D-7E4F-4A1B-9C2D-3E4F5A6B7C8D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A6B0C3D-7E4F-4A1B-9C2D-3E4F5A6B7C8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A6B0C3D-7E4F-4A1B-9C2D-3E4F5A6B7C8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A6B0C3D-7E4F-4A1B-9C2D-3E4F5A6B7C8D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B7C1D4E-8F5A-4B2C-AD3E-4F5A6B7C8D9E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B7C1D4E-8F5A-4B2C-AD3E-4F5A6B7C8D9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B7C1D4E-8F5A-4B2C-AD3E-4F5A6B7C8D9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B7C1D4E-8F5A-4B2C-AD3E-4F5A6B7C8D9E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
