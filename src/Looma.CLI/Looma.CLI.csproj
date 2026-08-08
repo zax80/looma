@@ -10,19 +10,30 @@
     <ProjectReference Include="..\Looma.Application\Looma.Application.csproj" />
 
     <!-- Composition-root exception to "clients depend only on Application"
-         (CLAUDE.md rule 1): Program.cs is the outermost composition root for
-         standalone mode and is where DI gets wired to concrete
-         implementations — the brief's own architecture section says exactly
-         this ("Only Program.cs DI wiring changes between shapes"). No
-         command handler under Commands/ references these projects; only
-         Program.cs does. MCP-client mode (a later milestone) will add a
-         second wiring path here that references Looma.MCP.Client instead. -->
+         (CLAUDE.md rule 1): Program.cs is the outermost composition root and
+         is where DI gets wired to concrete implementations — the brief's own
+         architecture section says exactly this ("Only Program.cs DI wiring
+         changes between shapes"). No command handler under Commands/
+         references any of these three projects; only Program.cs does, and
+         it picks between the Infrastructure.* pair (Standalone mode) and
+         Looma.MCP.Client (McpClient mode) based on Deployment:Mode. -->
     <ProjectReference Include="..\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj" />
     <ProjectReference Include="..\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj" />
+    <ProjectReference Include="..\Looma.MCP.Client\Looma.MCP.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Versions pinned centrally in Directory.Packages.props. -->
+    <!-- Versions pinned centrally in Directory.Packages.props.
+
+         Program.cs's McpClient-mode branch calls
+         services.AddOptions<RagOptions>().Bind(...) directly (so
+         SearchCommand's diagnostic threshold display works without pulling
+         in AddLoomaApplicationUseCases' Infrastructure-dependent
+         registrations) — that needs Microsoft.Extensions.Options /
+         .ConfigurationExtensions, already available transitively through
+         the Looma.Application ProjectReference below (which references
+         them directly itself), so no separate PackageReference is added
+         here for it. -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />

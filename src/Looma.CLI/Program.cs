@@ -1,18 +1,33 @@
 using System.Diagnostics;
 using Looma.Application;
+using Looma.Application.Configuration;
 using Looma.CLI.Commands;
 using Looma.Infrastructure.Llm;
 using Looma.Infrastructure.VectorStore.Qdrant;
+using Looma.MCP.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
+using McpClientType = ModelContextProtocol.Client.McpClient;
 
 namespace Looma.CLI;
 
 /// <summary>
-/// Standalone-mode entry point: local DI, no MCP client. Config discovery is
-/// deliberately simple and explicit per CLAUDE.md — "config.json" relative
-/// to the current working directory, or an explicit path via
-/// <c>--config &lt;path&gt;</c>. No walking up parent directories looking for it.
+/// Composition root for both deployment shapes <c>Deployment:Mode</c>
+/// supports: <c>"Standalone"</c> (local DI, talks to Qdrant/Ollama
+/// directly — the only mode this project had until Looma.MCP.Client
+/// existed) and <c>"McpClient"</c> (talks to a remote Looma.MCP.Server
+/// instead; see <see cref="LoomaMcpConnection"/>). Per CLAUDE.md rule 1,
+/// this file is the one place in Looma.CLI allowed to reference
+/// Infrastructure.* or Looma.MCP.Client directly — no command handler
+/// under Commands/ references either; they only see
+/// <c>Looma.Application</c>'s use-case interfaces, so the same command code
+/// runs unmodified regardless of which mode is active.
+///
+/// Config discovery is deliberately simple and explicit per CLAUDE.md —
+/// "config.json" relative to the current working directory, or an explicit
+/// path via <c>--config &lt;path&gt;</c>. No walking up parent directories
+/// looking for it.
 /// </summary>
 public static class Program
 {
@@ -72,16 +87,34 @@ public static class Program
             cts.Cancel();
         };
 
+        var services = new ServiceCollection();
+        services.AddSingleton(configuration);
+
+        var deploymentMode = configuration["Deployment:Mode"];
+        if (string.IsNullOrWhiteSpace(deploymentMode))
+        {
+            deploymentMode = "Standalone";
+        }
+
+        McpClientType? mcpClient = null;
+
         try
         {
-            // Standalone mode shouldn't require the person to have separately
-            // started Ollama — detect/launch/pull-models here, once, before
-            // anything downstream tries to talk to it.
-            await OllamaStartup.EnsureOllamaReadyAsync(
-                configuration,
-                onStatus: message => Console.WriteLine($"[ollama] {message}"),
-                confirmInstall: ConfirmInstallAsync,
-                cts.Token);
+            switch (deploymentMode)
+            {
+                case "Standalone":
+                    await ConfigureStandaloneAsync(configuration, services, cts.Token, MarkTiming);
+                    break;
+
+                case "McpClient":
+                    mcpClient = await ConfigureMcpClientAsync(configuration, services, cts.Token, MarkTiming);
+                    break;
+
+                default:
+                    Console.Error.WriteLine(
+                        $"Unknown Deployment:Mode '{deploymentMode}'. Expected \"Standalone\" or \"McpClient\".");
+                    return 1;
+            }
         }
         catch (OllamaLifecycleException ex)
         {
@@ -93,80 +126,41 @@ public static class Program
             Console.Error.WriteLine(ex.Message);
             return 1;
         }
-        catch (OperationCanceledException)
+        catch (InvalidOperationException ex) when (deploymentMode == "McpClient")
         {
-            Console.Error.WriteLine("Cancelled.");
-            return 130;
-        }
-        MarkTiming("Ollama readiness check");
-
-        try
-        {
-            // The direct-fetch half of first-run provisioning for models
-            // Ollama doesn't serve (CLIP, Whisper). Deliberately best-effort,
-            // not fatal — see LocalModelFileProvisioner's doc comment for why
-            // this is treated differently from the Ollama readiness check above.
-            await LocalModelFileProvisioner.EnsureImageEmbeddingModelReadyAsync(
-                configuration,
-                onStatus: message => Console.WriteLine($"[clip] {message}"),
-                cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Console.Error.WriteLine("Cancelled.");
-            return 130;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"[clip] Warning: couldn't auto-provision the CLIP model ({ex.Message}). " +
-                "Image indexing will fail until this is resolved; everything else is unaffected. " +
-                "See docs/model-setup.md.");
-        }
-        MarkTiming("CLIP model provisioning check");
-
-        try
-        {
-            await LocalModelFileProvisioner.EnsureSpeechToTextModelReadyAsync(
-                configuration,
-                onStatus: message => Console.WriteLine($"[whisper] {message}"),
-                cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Console.Error.WriteLine("Cancelled.");
-            return 130;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"[whisper] Warning: couldn't auto-provision the Whisper model ({ex.Message}). " +
-                "Audio indexing will fail until this is resolved; everything else is unaffected. " +
-                "See docs/model-setup.md.");
-        }
-        MarkTiming("Whisper model provisioning check");
-
-        var services = new ServiceCollection();
-        services.AddSingleton(configuration);
-
-        try
-        {
-            services.AddQdrantVectorStore(configuration);
-            services.AddQdrantAnswerCache(configuration);
-            services.AddLoomaChatClient(configuration);
-            services.AddLoomaEmbeddingGenerator(configuration);
-            services.AddLoomaImageCaptioner(configuration);
-            services.AddLoomaImageEmbeddingGenerator(configuration);
-            services.AddLoomaAudioTranscriber(configuration);
-            services.AddLoomaApplicationUseCases(configuration);
-        }
-        catch (InferenceEndpointNotAllowedException ex)
-        {
-            // Fail loudly at startup, per CLAUDE.md — this is exactly that
-            // failure surfacing at the CLI boundary instead of as a stack trace.
+            // LoomaMcpConnection's own config/auth validation errors — same
+            // "fail loudly at startup" spirit as the exceptions above.
             Console.Error.WriteLine(ex.Message);
             return 1;
         }
+        catch (McpException ex)
+        {
+            Console.Error.WriteLine($"Couldn't connect to the remote MCP server: {ex.Message}");
+            return 1;
+        }
+        catch (HttpRequestException ex) when (deploymentMode == "McpClient")
+        {
+            // The common real failure: nothing is listening at
+            // Deployment:McpServerEndpoint yet (server not started, wrong
+            // port, wrong host). McpClient.CreateAsync surfaces this as a
+            // raw HttpRequestException, not an McpException — worth its own
+            // clear message rather than a stack trace.
+            var endpoint = configuration["Deployment:McpServerEndpoint"];
+            Console.Error.WriteLine(
+                $"Couldn't reach the MCP server at '{endpoint}' ({ex.Message}). " +
+                "Is Looma.MCP.Server running there? See docs/mcp-server.md.");
+            return 1;
+        }
+        catch (OperationCanceledException)
+        {
+            Console.Error.WriteLine("Cancelled.");
+            return 130;
+        }
+
+        // McpClient is only non-null in "McpClient" mode; AddSingleton(instance)
+        // registrations are never disposed by the container itself, so this is
+        // the one place responsible for shutting the connection down cleanly.
+        await using var mcpClientLifetime = mcpClient;
 
         await using var provider = services.BuildServiceProvider();
         MarkTiming("build DI container");
@@ -194,11 +188,121 @@ public static class Program
             Console.Error.WriteLine($"Qdrant error: {ex.Message}");
             return 1;
         }
+        catch (McpException ex)
+        {
+            Console.Error.WriteLine($"MCP error: {ex.Message}");
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             Console.Error.WriteLine("Cancelled.");
             return 130;
         }
+    }
+
+    /// <summary>
+    /// Everything standalone mode needs: local Ollama lifecycle (fatal for
+    /// Base/Embedding, best-effort for Vision — see
+    /// <see cref="OllamaStartup"/>), best-effort direct-download
+    /// provisioning for CLIP/Whisper, then the real Infrastructure.* DI
+    /// wiring. Unchanged from before Looma.MCP.Client existed — this is
+    /// exactly what Program.cs always did when there was only one mode.
+    /// </summary>
+    private static async Task ConfigureStandaloneAsync(
+        IConfiguration configuration,
+        IServiceCollection services,
+        CancellationToken cancellationToken,
+        Action<string> markTiming)
+    {
+        // Standalone mode shouldn't require the person to have separately
+        // started Ollama — detect/launch/pull-models here, once, before
+        // anything downstream tries to talk to it.
+        await OllamaStartup.EnsureOllamaReadyAsync(
+            configuration,
+            onStatus: message => Console.WriteLine($"[ollama] {message}"),
+            confirmInstall: ConfirmInstallAsync,
+            cancellationToken);
+        markTiming("Ollama readiness check");
+
+        try
+        {
+            // The direct-fetch half of first-run provisioning for models
+            // Ollama doesn't serve (CLIP, Whisper). Deliberately best-effort,
+            // not fatal — see LocalModelFileProvisioner's doc comment for why
+            // this is treated differently from the Ollama readiness check above.
+            await LocalModelFileProvisioner.EnsureImageEmbeddingModelReadyAsync(
+                configuration,
+                onStatus: message => Console.WriteLine($"[clip] {message}"),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[clip] Warning: couldn't auto-provision the CLIP model ({ex.Message}). " +
+                "Image indexing will fail until this is resolved; everything else is unaffected. " +
+                "See docs/model-setup.md.");
+        }
+        markTiming("CLIP model provisioning check");
+
+        try
+        {
+            await LocalModelFileProvisioner.EnsureSpeechToTextModelReadyAsync(
+                configuration,
+                onStatus: message => Console.WriteLine($"[whisper] {message}"),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[whisper] Warning: couldn't auto-provision the Whisper model ({ex.Message}). " +
+                "Audio indexing will fail until this is resolved; everything else is unaffected. " +
+                "See docs/model-setup.md.");
+        }
+        markTiming("Whisper model provisioning check");
+
+        services.AddQdrantVectorStore(configuration);
+        services.AddQdrantAnswerCache(configuration);
+        services.AddLoomaChatClient(configuration);
+        services.AddLoomaEmbeddingGenerator(configuration);
+        services.AddLoomaImageCaptioner(configuration);
+        services.AddLoomaImageEmbeddingGenerator(configuration);
+        services.AddLoomaAudioTranscriber(configuration);
+        services.AddLoomaApplicationUseCases(configuration);
+    }
+
+    /// <summary>
+    /// McpClient mode: no local Ollama/model provisioning at all — the
+    /// remote Looma.MCP.Server owns that entirely. Connects, then registers
+    /// the remote use-case implementations against the exact same
+    /// interfaces standalone mode registers local ones against, plus
+    /// <see cref="RagOptions"/> alone (not the rest of
+    /// <c>AddLoomaApplicationUseCases</c>) so <c>SearchCommand</c>'s
+    /// diagnostic threshold display still works without pulling in any
+    /// Infrastructure.* dependency.
+    /// </summary>
+    private static async Task<McpClientType> ConfigureMcpClientAsync(
+        IConfiguration configuration,
+        IServiceCollection services,
+        CancellationToken cancellationToken,
+        Action<string> markTiming)
+    {
+        Console.WriteLine("[mcp-client] Connecting to remote Looma.MCP.Server...");
+        var client = await LoomaMcpConnection.ConnectAsync(configuration, cancellationToken);
+        Console.WriteLine("[mcp-client] Connected.");
+        markTiming("MCP client connection");
+
+        services.AddOptions<RagOptions>().Bind(configuration.GetSection(RagOptions.SectionName));
+        services.AddLoomaMcpClientUseCases(client);
+
+        return client;
     }
 
     /// <summary>
@@ -246,7 +350,7 @@ public static class Program
     private static int PrintUsage()
     {
         Console.WriteLine("""
-            looma — local-first document intelligence (standalone mode)
+            looma — local-first document intelligence
 
             Usage:
               looma [--config <path>] index <path> [--no-recursive] [--clear]
@@ -256,6 +360,10 @@ public static class Program
               looma [--config <path>] clear-cache
 
             --config defaults to config.json in the current directory.
+            Deployment:Mode in config.json selects "Standalone" (default —
+            talks to Qdrant/Ollama directly) or "McpClient" (talks to a
+            remote Looma.MCP.Server; also needs Deployment:McpServerEndpoint
+            and the Mcp:Auth:ApiKeyEnvVar environment variable set).
             """);
         return 0;
     }

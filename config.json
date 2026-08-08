@@ -2,8 +2,8 @@
   "DomainName": "Looma",
   "Version": "2.0.0",
   "Deployment": {
-    "Mode": "Standalone",
-    "McpServerEndpoint": null
+    "Mode": "McpClient",
+    "McpServerEndpoint": "http://localhost:3001"
   },
   "Models": {
     "BaseModel": {

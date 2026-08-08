@@ -17,6 +17,10 @@ public static class CountTool
     {
         var parsedCollection = VectorCollectionParser.Parse(collection);
         var count = await countUseCase.CountAsync(parsedCollection, cancellationToken).ConfigureAwait(false);
-        return $"{collection}: {count}";
+
+        // Plain number, not "collection: N" — keeps this trivially parseable
+        // for a machine client (Looma.MCP.Client); the tool name and
+        // `collection` argument already carry which collection was queried.
+        return count.ToString();
     }
 }

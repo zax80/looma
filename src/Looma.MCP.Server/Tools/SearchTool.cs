@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using Looma.Application.UseCases;
 using Looma.Core.Entities;
 using ModelContextProtocol;
@@ -6,7 +7,13 @@ using ModelContextProtocol.Server;
 
 namespace Looma.MCP.Server.Tools;
 
-/// <summary>Wraps <see cref="ISearchUseCase"/>. Streams one progress notification per scored match as it arrives.</summary>
+/// <summary>
+/// Wraps <see cref="ISearchUseCase"/>. Streams one progress notification per
+/// scored match as it arrives — each notification's <c>Message</c> is the
+/// actual <see cref="VectorSearchResult"/> serialized as-is (see
+/// <see cref="Wire"/>), so Looma.MCP.Client can deserialize straight back
+/// into the same type rather than re-parsing human-readable text.
+/// </summary>
 [McpServerToolType]
 public static class SearchTool
 {
@@ -38,7 +45,7 @@ public static class SearchTool
             {
                 Progress = count,
                 Total = topK,
-                Message = line
+                Message = JsonSerializer.Serialize(result, Wire.Options)
             });
         }
 

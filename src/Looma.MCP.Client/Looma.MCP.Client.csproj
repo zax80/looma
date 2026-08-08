@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- CLAUDE.md rule 1: MCP.* client projects depend only on Application,
+         same as Looma.CLI — never Infrastructure.*. This project has no
+         composition-root exception to that rule at all, unlike Looma.CLI /
+         Looma.MCP.Server: it never talks to Qdrant or Ollama directly, only
+         to a remote Looma.MCP.Server over MCP. -->
+    <ProjectReference Include="..\Looma.Application\Looma.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Version pinned centrally in Directory.Packages.props.
+
+         Microsoft.Extensions.Configuration.Abstractions and
+         .DependencyInjection.Abstractions (used by LoomaMcpConnection.cs /
+         ServiceCollectionExtensions.cs) are deliberately not referenced
+         directly here — Looma.Application already references both, and
+         NuGet flagged the equivalent direct references as redundant
+         (NU1510) the first time this kind of duplication was built for
+         real, in Looma.MCP.Server. -->
+    <PackageReference Include="ModelContextProtocol.Core" />
+  </ItemGroup>
+
+</Project>

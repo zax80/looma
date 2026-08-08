@@ -1,10 +1,13 @@
-# Looma.MCP.Server
+# Looma.MCP.Server and Looma.MCP.Client
 
-Standalone MCP server exposing Looma's indexing/search/answer/count/cache
-operations as MCP tools over HTTP. This is the "server first" half of
-milestone 6 — `Looma.MCP.Client` and CLI MCP-client mode (switching
-`Deployment.Mode` to talk to a remote server instead of running everything
-in-process) are a follow-up, not covered here.
+`Looma.MCP.Server` exposes Looma's indexing/search/answer/count/cache
+operations as MCP tools over HTTP. `Looma.MCP.Client` is a real MCP client —
+Looma.CLI can run in either "Standalone" mode (talks to Qdrant/Ollama
+directly, in-process) or "McpClient" mode (talks to a remote
+Looma.MCP.Server instead, via `Looma.MCP.Client`), selected by
+`Deployment:Mode` in `config.json`. Command code under `Looma.CLI/Commands`
+is identical either way — it only ever sees `Looma.Application`'s use-case
+interfaces, never which mode is active.
 
 ## Scope of this milestone
 
@@ -72,7 +75,7 @@ Claude Desktop's custom MCP server config — before relying on this.
 | `looma_index` | `IIndexingUseCase` | Streams a progress notification per file; destructive if `clearFirst=true`. |
 | `looma_search` | `ISearchUseCase` | `collection="images"` currently only supports image-to-image queries — no CLIP text encoder is wired up yet for text→image search. |
 | `looma_answer` | `IAnswerUseCase` | Streams generated tokens as progress notifications; final result includes citations. |
-| `looma_count` | `ICountUseCase` | Single call, no streaming. |
+| `looma_count` | `ICountUseCase` | Single call, no streaming; returns the raw count as plain text. |
 | `looma_clear_cache` | `IAnswerCache.ClearAsync` | Same operation as the CLI's `clear-cache` command. |
 
 All of these forward real-time progress via MCP's `notifications/progress`
@@ -82,6 +85,41 @@ returning — the same "no buffer-and-return shortcut" rule the underlying
 `Looma.Application` use-case interfaces already document for local (CLI)
 consumers.
 
+Each progress notification's `Message` field is JSON — specifically, the
+actual `Looma.Core.Entities` record being streamed (`IndexingProgress`,
+`VectorSearchResult`, or `AnswerToken`, citations' embedding vectors
+stripped), not prose. `Looma.MCP.Client` deserializes straight back into
+that same type. A generic MCP client (Inspector, Claude Desktop) still
+shows it fine — it's just JSON instead of a formatted sentence — and the
+final `CallToolResult` text is a human-readable summary either way.
+
+## Connecting via Looma.CLI (McpClient mode)
+
+Instead of a generic MCP client, `Looma.CLI` can run against a remote
+Looma.MCP.Server directly, using the exact same `index`/`answer`/`count`/
+`search`/`clear-cache` commands as standalone mode. To switch a `config.json`
+into this mode:
+
+```json
+"Deployment": {
+  "Mode": "McpClient",
+  "McpServerEndpoint": "http://localhost:3001"
+}
+```
+
+Then run the CLI with the same API key env var set as the server:
+
+```powershell
+$env:LOOMA_MCP_API_KEY = "<the server's key>"
+dotnet run --project src/Looma.CLI -- answer "what's in the image?"
+```
+
+In this mode the CLI does none of its own Ollama/model-provisioning work —
+the remote server owns that entirely — it just connects and calls tools.
+`Mcp:Auth:Mode` must be `"ApiKey"` (the only mode `Looma.MCP.Client`
+supports so far); anything else fails at startup rather than silently
+connecting unauthenticated.
+
 ## Known gaps (not fixed here)
 
 - No TLS (see above).
@@ -90,3 +128,9 @@ consumers.
   underlying gap `ISearchUseCase`'s doc comment already flags for the CLI's
   `search` command.
 - No rate limiting or connection-count limits.
+- `Looma.MCP.Client` doesn't reconnect or retry on a dropped connection —
+  if the server restarts mid-session, the CLI process needs to be re-run.
+- `Looma.MCP.Client`'s `IAnswerCache` adapter only implements `ClearAsync`
+  (the only method the CLI ever calls directly); the other three methods
+  throw, since real caching happens entirely server-side inside the remote
+  `looma_answer` tool in this mode. Documented on the adapter itself.

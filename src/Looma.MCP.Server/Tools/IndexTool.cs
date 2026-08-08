@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using Looma.Application.UseCases;
 using Looma.Core.Entities;
 using ModelContextProtocol;
@@ -8,7 +9,8 @@ namespace Looma.MCP.Server.Tools;
 
 /// <summary>
 /// Wraps <see cref="IIndexingUseCase"/>. Each streamed
-/// <see cref="IndexingProgress"/> event is forwarded immediately as an MCP
+/// <see cref="IndexingProgress"/> event is forwarded immediately — serialized
+/// as-is (see <see cref="Wire"/>) into the <c>Message</c> field — as an MCP
 /// <c>notifications/progress</c> message via the injected
 /// <see cref="IProgress{T}"/> — the SDK correlates it to the calling
 /// client's own progress token automatically (a no-op if the client didn't
@@ -16,7 +18,9 @@ namespace Looma.MCP.Server.Tools;
 /// tool calls actually support: a single call still returns one final
 /// result, but per-file updates arrive live rather than only at the end,
 /// matching <see cref="IIndexingUseCase"/>'s own "never buffer the whole
-/// run" contract for local (CLI) consumers.
+/// run" contract — Looma.MCP.Client deserializes each notification straight
+/// back into an <see cref="IndexingProgress"/>, so a remote consumer gets the
+/// exact same event stream a local (CLI) consumer would.
 /// </summary>
 [McpServerToolType]
 public static class IndexTool
@@ -68,7 +72,7 @@ public static class IndexTool
             {
                 Progress = evt.FileIndex ?? completed + skipped + failed,
                 Total = evt.TotalFiles ?? 0,
-                Message = line
+                Message = JsonSerializer.Serialize(evt, Wire.Options)
             });
         }
 
