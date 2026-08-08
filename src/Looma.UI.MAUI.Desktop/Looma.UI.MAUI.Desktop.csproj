@@ -1,0 +1,108 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Directory.Build.props sets a single <TargetFramework> (net10.0)
+		     repo-wide, for the ordinary single-targeted projects. This is the
+		     one project that needs real multi-targeting instead — clearing it
+		     here is required, not cosmetic: having both TargetFramework and
+		     TargetFrameworks set at once is a hard MSBuild error
+		     (NETSDK1013). -->
+		<TargetFramework></TargetFramework>
+
+		<!-- Desktop only, per docs/looma-project-brief.md: Windows + Mac
+		     Catalyst. Android/iOS belong to the separate (not yet built)
+		     Looma.UI.MAUI.Mobile project, not this one. Mac Catalyst can only
+		     actually be built on a Mac (or a macOS CI runner) — this just
+		     makes the shared codebase ready for that, it doesn't make the
+		     Mac build happen from Windows. -->
+		<TargetFrameworks>net10.0-maccatalyst</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+
+		<!-- Note for MacCatalyst:
+		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
+		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
+		The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
+		either BOTH runtimes must be indicated or ONLY macatalyst-x64. -->
+		<!-- For example: <RuntimeIdentifiers>maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
+
+		<OutputType>Exe</OutputType>
+		<RootNamespace>Looma.UI.MAUI.Desktop</RootNamespace>
+		<UseMaui>true</UseMaui>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Display name -->
+		<ApplicationTitle>Looma.UI.MAUI.Desktop</ApplicationTitle>
+
+		<!-- App Identifier -->
+		<ApplicationId>com.companyname.looma.ui.maui.desktop</ApplicationId>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+
+		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
+		<WindowsPackageType>None</WindowsPackageType>
+
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- A GUI app launched by double-click has no meaningful "current
+		     working directory" the way Looma.CLI's terminal launch does, so
+		     MauiProgram.cs reads config.json from AppContext.BaseDirectory
+		     (next to the built binary) instead of the cwd. This copies the
+		     repo-root config.json there at build time so there's still one
+		     source of truth shared with Looma.CLI / Looma.MCP.Server, not a
+		     second copy to maintain by hand. -->
+		<None Include="..\..\config.json" Link="config.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- App Icon -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+
+		<!-- Splash Screen -->
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+
+		<!-- Images -->
+		<MauiImage Include="Resources\Images\*" />
+		<MauiImage Update="Resources\Images\dotnet_bot.png" Resize="True" BaseSize="300,185" />
+
+		<!-- Custom Fonts -->
+		<MauiFont Include="Resources\Fonts\*" />
+
+		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Microsoft.Maui.Controls' version is pinned centrally too (see
+		     Directory.Packages.props) but still needs $(MauiVersion) as its
+		     value there — that MSBuild property comes from the installed
+		     workload itself, not something to hardcode. -->
+		<PackageReference Include="Microsoft.Maui.Controls" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" />
+		<!-- Not transitively available here the way it is for Looma.CLI —
+		     AddJsonFile lives in this package specifically. -->
+		<PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Composition-root exception to "clients depend only on Application"
+		     (CLAUDE.md rule 1), same pattern as Looma.CLI / Looma.MCP.Server:
+		     MauiProgram.cs is this project's composition root and picks
+		     between the Infrastructure.* pair (Standalone mode) and
+		     Looma.MCP.Client (McpClient mode) based on Deployment:Mode, same
+		     branch logic as Looma.CLI's Program.cs. No page/view code
+		     references any of these three projects directly. -->
+		<ProjectReference Include="..\Looma.Application\Looma.Application.csproj" />
+		<ProjectReference Include="..\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj" />
+		<ProjectReference Include="..\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj" />
+		<ProjectReference Include="..\Looma.MCP.Client\Looma.MCP.Client.csproj" />
+	</ItemGroup>
+
+</Project>

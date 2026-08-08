@@ -14,9 +14,12 @@ obj/
 Thumbs.db
 
 ## Data / local models (never commit indexed content or pulled models)
-/data/
-/models/
+## Unanchored (no leading slash) on purpose — Looma.MCP.Server has its own
+## data/models/.looma/ nested under src/, not just at the repo root, and a
+## leading slash would only match the root-level copies.
+data/
+models/
 *.log
 
 ## Answer cache (local, may contain generated answers/citations)
-/.looma/
+.looma/
