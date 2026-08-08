@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Looma.UI.MAUI.Desktop.MainPage"
+             Title="Looma">
+
+    <Grid Padding="20" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
+
+        <!-- Only shown when MauiProgram's composition root failed at
+             startup (bad config, Ollama unreachable, MCP server
+             unreachable, etc.) — see StartupStatus. -->
+        <Label x:Name="StartupErrorLabel"
+               Grid.Row="0"
+               TextColor="Red"
+               FontAttributes="Bold"
+               LineBreakMode="WordWrap"
+               IsVisible="False" />
+
+        <HorizontalStackLayout Grid.Row="1" Spacing="8">
+            <Entry x:Name="QuestionEntry"
+                   Placeholder="Ask a question about your documents..."
+                   WidthRequest="520"
+                   Completed="OnAskClicked" />
+            <Button x:Name="AskButton" Text="Ask" Clicked="OnAskClicked" />
+        </HorizontalStackLayout>
+
+        <BoxView Grid.Row="2" HeightRequest="1" Color="LightGray" />
+
+        <!-- Answer streams in here token-by-token, same as `looma answer`
+             in the CLI — just rendered instead of Console.Write'd. -->
+        <ScrollView Grid.Row="3">
+            <Label x:Name="AnswerLabel" LineBreakMode="WordWrap" FontSize="16" />
+        </ScrollView>
+
+        <VerticalStackLayout Grid.Row="4" Spacing="4">
+            <Label Text="Sources" FontAttributes="Bold" FontSize="13" />
+            <CollectionView x:Name="CitationsView">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding}" FontSize="12" TextColor="Gray" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </VerticalStackLayout>
+
+    </Grid>
+
+</ContentPage>

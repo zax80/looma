@@ -93,6 +93,19 @@
     -->
     <PackageVersion Include="ModelContextProtocol.Core" Version="2.1.0" />
 
+    <!--
+      Looma.UI.MAUI.Desktop only. Microsoft.Maui.Controls' version must
+      track whatever the installed MAUI workload provides — $(MauiVersion)
+      is an SDK-injected MSBuild property, not a literal to pin here, but
+      central package management still requires a PackageVersion entry to
+      exist for the id. Microsoft.Extensions.Logging.Debug checked directly
+      against NuGet on 2026-08-08 — 10.0.9 is that family's actual latest at
+      this patch level (not 10.0.10, unlike the other Microsoft.Extensions.*
+      entries above; each package in the family patches on its own cadence).
+    -->
+    <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
+
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
