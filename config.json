@@ -2,7 +2,7 @@
   "DomainName": "Looma",
   "Version": "2.0.0",
   "Deployment": {
-    "Mode": "McpClient",
+    "Mode": "Standalone",
     "McpServerEndpoint": "http://localhost:3001"
   },
   "Models": {
@@ -79,6 +79,10 @@
     "FilePath": "./.looma/answer-cache.json",
     "CollectionName": "answer_cache",
     "SemanticSimilarityThreshold": 0.97
+  },
+  "ChatHistory": {
+    "SessionsFilePath": "./.looma/chat-sessions.json",
+    "SavedAnswersFilePath": "./.looma/saved-answers.json"
   },
   "Security": {
     "AllowedInferenceHosts": ["localhost", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],

@@ -3,6 +3,7 @@ using Looma.Application;
 using Looma.Application.Configuration;
 using Looma.CLI.Commands;
 using Looma.Infrastructure.Llm;
+using Looma.Infrastructure.LocalStore;
 using Looma.Infrastructure.VectorStore.Qdrant;
 using Looma.MCP.Client;
 using Microsoft.Extensions.Configuration;
@@ -270,6 +271,7 @@ public static class Program
 
         services.AddQdrantVectorStore(configuration);
         services.AddQdrantAnswerCache(configuration);
+        services.AddLoomaLocalChatStore(configuration);
         services.AddLoomaChatClient(configuration);
         services.AddLoomaEmbeddingGenerator(configuration);
         services.AddLoomaImageCaptioner(configuration);

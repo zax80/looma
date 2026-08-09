@@ -89,6 +89,8 @@
 		<!-- Not transitively available here the way it is for Looma.CLI —
 		     AddJsonFile lives in this package specifically. -->
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+		<!-- Microphone recording for chat voice input — see Directory.Packages.props. -->
+		<PackageReference Include="Plugin.Maui.Audio" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -102,6 +104,7 @@
 		<ProjectReference Include="..\Looma.Application\Looma.Application.csproj" />
 		<ProjectReference Include="..\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj" />
 		<ProjectReference Include="..\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj" />
+		<ProjectReference Include="..\Looma.Infrastructure.LocalStore\Looma.Infrastructure.LocalStore.csproj" />
 		<ProjectReference Include="..\Looma.MCP.Client\Looma.MCP.Client.csproj" />
 	</ItemGroup>
 

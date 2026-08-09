@@ -4,44 +4,105 @@
              x:Class="Looma.UI.MAUI.Desktop.MainPage"
              Title="Looma">
 
-    <Grid Padding="20" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
+    <Grid Padding="0" ColumnDefinitions="260,*">
 
-        <!-- Only shown when MauiProgram's composition root failed at
-             startup (bad config, Ollama unreachable, MCP server
-             unreachable, etc.) — see StartupStatus. -->
-        <Label x:Name="StartupErrorLabel"
-               Grid.Row="0"
-               TextColor="Red"
-               FontAttributes="Bold"
-               LineBreakMode="WordWrap"
-               IsVisible="False" />
-
-        <HorizontalStackLayout Grid.Row="1" Spacing="8">
-            <Entry x:Name="QuestionEntry"
-                   Placeholder="Ask a question about your documents..."
-                   WidthRequest="520"
-                   Completed="OnAskClicked" />
-            <Button x:Name="AskButton" Text="Ask" Clicked="OnAskClicked" />
-        </HorizontalStackLayout>
-
-        <BoxView Grid.Row="2" HeightRequest="1" Color="LightGray" />
-
-        <!-- Answer streams in here token-by-token, same as `looma answer`
-             in the CLI — just rendered instead of Console.Write'd. -->
-        <ScrollView Grid.Row="3">
-            <Label x:Name="AnswerLabel" LineBreakMode="WordWrap" FontSize="16" />
-        </ScrollView>
-
-        <VerticalStackLayout Grid.Row="4" Spacing="4">
-            <Label Text="Sources" FontAttributes="Bold" FontSize="13" />
-            <CollectionView x:Name="CitationsView">
+        <!-- Sidebar: chat sessions -->
+        <Grid Grid.Column="0" BackgroundColor="#F4F4F4" RowDefinitions="Auto,Auto,*,Auto" Padding="12" RowSpacing="8">
+            <Label Grid.Row="0" Text="Looma" FontAttributes="Bold" FontSize="20" />
+            <Button Grid.Row="1" Text="+ New chat" Clicked="OnNewChatClicked" />
+            <CollectionView Grid.Row="2" x:Name="SessionsView" SelectionMode="Single" SelectionChanged="OnSessionSelected">
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <Label Text="{Binding}" FontSize="12" TextColor="Gray" />
+                        <Grid Padding="6,8" ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0"
+                                   Text="{Binding Title}"
+                                   LineBreakMode="TailTruncation"
+                                   FontSize="14"
+                                   VerticalOptions="Center" />
+                            <Button Grid.Column="1"
+                                    Text="✕"
+                                    FontSize="12"
+                                    WidthRequest="26"
+                                    HeightRequest="26"
+                                    Padding="0"
+                                    BackgroundColor="Transparent"
+                                    TextColor="Gray"
+                                    CommandParameter="{Binding Id}"
+                                    Clicked="OnDeleteSessionClicked"
+                                    ToolTipProperties.Text="Delete this chat" />
+                        </Grid>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>
-        </VerticalStackLayout>
+            <Button Grid.Row="3" Text="Saved answers" Clicked="OnViewSavedAnswersClicked" />
+        </Grid>
+
+        <!-- Chat -->
+        <Grid Grid.Column="1" Padding="20" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+
+            <!-- General composition-root failure (bad config, Ollama unreachable, etc.) -->
+            <Label x:Name="StartupErrorLabel"
+                   Grid.Row="0"
+                   TextColor="Red"
+                   FontAttributes="Bold"
+                   LineBreakMode="WordWrap"
+                   IsVisible="False" />
+
+            <!-- Chat specifically unavailable (McpClient mode today — see IChatUseCase's doc comment) -->
+            <Label x:Name="ChatUnavailableLabel"
+                   Grid.Row="0"
+                   TextColor="DarkOrange"
+                   FontAttributes="Bold"
+                   LineBreakMode="WordWrap"
+                   IsVisible="False" />
+
+            <BoxView Grid.Row="1" HeightRequest="1" Color="LightGray" />
+
+            <CollectionView Grid.Row="2" x:Name="TranscriptView">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <VerticalStackLayout Padding="0,8" Spacing="2">
+                            <Label Text="{Binding RoleLabel}" FontAttributes="Bold" FontSize="12" />
+                            <Label Text="{Binding Text}" LineBreakMode="WordWrap" FontSize="15" />
+                            <Label Text="{Binding CitationsText}" FontSize="11" TextColor="Gray" LineBreakMode="WordWrap" />
+                        </VerticalStackLayout>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <Grid Grid.Row="3" RowDefinitions="Auto,Auto" RowSpacing="6">
+
+                <!-- Shown after "Attach image" — the caption that will be sent as context, and a way to drop it before sending. -->
+                <Grid Grid.Row="0" x:Name="PendingAttachmentRow" ColumnDefinitions="*,Auto" IsVisible="False">
+                    <Label Grid.Column="0" x:Name="PendingAttachmentLabel" FontSize="12" TextColor="Gray" LineBreakMode="TailTruncation" VerticalOptions="Center" />
+                    <Button Grid.Column="1" Text="✕" Clicked="OnRemovePendingAttachmentClicked" WidthRequest="32" Padding="0" />
+                </Grid>
+
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+                    <Button x:Name="MicButton"
+                            Grid.Column="0"
+                            Text="🎙"
+                            WidthRequest="44"
+                            Pressed="OnMicPressed"
+                            Released="OnMicReleased"
+                            ToolTipProperties.Text="Hold to record a voice question" />
+                    <Button x:Name="AttachButton"
+                            Grid.Column="1"
+                            Text="📎"
+                            WidthRequest="44"
+                            Clicked="OnAttachImageClicked"
+                            ToolTipProperties.Text="Attach an image to ask about" />
+                    <Entry x:Name="QuestionEntry"
+                           Grid.Column="2"
+                           Placeholder="Ask a question about your documents..."
+                           Completed="OnSendClicked" />
+                    <Button x:Name="SendButton" Grid.Column="3" Text="Send" Clicked="OnSendClicked" />
+                    <Button x:Name="SaveButton" Grid.Column="4" Text="Save answer" Clicked="OnSaveAnswerClicked" />
+                </Grid>
+
+            </Grid>
+
+        </Grid>
 
     </Grid>
 

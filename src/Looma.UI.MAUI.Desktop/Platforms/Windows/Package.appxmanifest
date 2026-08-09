@@ -41,6 +41,8 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Chat's hold-to-record voice input (Plugin.Maui.Audio). -->
+    <DeviceCapability Name="microphone"/>
   </Capabilities>
 
 </Package>

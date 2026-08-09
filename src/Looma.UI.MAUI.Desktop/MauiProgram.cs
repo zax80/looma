@@ -1,11 +1,13 @@
 using Looma.Application;
 using Looma.Application.Configuration;
 using Looma.Infrastructure.Llm;
+using Looma.Infrastructure.LocalStore;
 using Looma.Infrastructure.VectorStore.Qdrant;
 using Looma.MCP.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Plugin.Maui.Audio;
 using McpClientType = ModelContextProtocol.Client.McpClient;
 
 namespace Looma.UI.MAUI.Desktop;
@@ -66,6 +68,10 @@ public static class MauiProgram
 #if DEBUG
         builder.Logging.AddDebug();
 #endif
+
+        // Registers IAudioManager for DI — used by MainPage's hold-to-record
+        // voice input (Plugin.Maui.Audio), independent of Deployment:Mode.
+        builder.AddAudio();
 
         ConfigureLooma(builder.Services);
 
@@ -220,6 +226,7 @@ public static class MauiProgram
 
         services.AddQdrantVectorStore(configuration);
         services.AddQdrantAnswerCache(configuration);
+        services.AddLoomaLocalChatStore(configuration);
         services.AddLoomaChatClient(configuration);
         services.AddLoomaEmbeddingGenerator(configuration);
         services.AddLoomaImageCaptioner(configuration);

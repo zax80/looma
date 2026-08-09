@@ -14,6 +14,11 @@ namespace Looma.Application;
 /// <c>Looma.Infrastructure.VectorStore.Qdrant</c> /
 /// <c>Looma.Infrastructure.Llm</c>'s own extensions) — this method only
 /// wires the Application-layer orchestration on top of them.
+///
+/// <see cref="IChatUseCase"/> and <see cref="ISavedAnswerUseCase"/> also
+/// need <c>IChatSessionStore</c>/<c>ISavedAnswerStore</c> registered
+/// separately (e.g. via <c>Looma.Infrastructure.LocalStore</c>'s own
+/// extension) — same pattern as the rest of this list.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
@@ -27,6 +32,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISearchUseCase, SearchUseCase>();
         services.AddSingleton<IAnswerUseCase, AnswerUseCase>();
         services.AddSingleton<ICountUseCase, CountUseCase>();
+        services.AddSingleton<IChatUseCase, ChatUseCase>();
+        services.AddSingleton<ISavedAnswerUseCase, SavedAnswerUseCase>();
+        services.AddSingleton<ITranscriptionUseCase, TranscriptionUseCase>();
+        services.AddSingleton<IImageCaptionUseCase, ImageCaptionUseCase>();
 
         return services;
     }
