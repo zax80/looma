@@ -106,6 +106,17 @@
     <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
 
+    <!--
+      Looma.UI.MAUI.Desktop only — microphone recording for chat voice
+      input. MediaPicker (photo attach) needs no separate package, it's
+      part of Microsoft.Maui.Controls/Essentials already referenced above.
+      Confirmed 4.0.0 is current via NuGet Gallery on 2026-08-09; supports
+      WAV(PCM) recording on both Windows and MacCatalyst, which
+      WhisperAudioTranscriber already auto-detects and normalizes — no
+      format-specific handling needed on our side.
+    -->
+    <PackageVersion Include="Plugin.Maui.Audio" Version="4.0.0" />
+
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />

@@ -161,6 +161,26 @@ Run `looma clear-cache` after a prompt/model/config change that a re-index
 wouldn't otherwise invalidate — the cache's staleness check only tracks
 re-indexing, not generation-affecting settings.
 
+## `ChatHistory`
+
+```json
+"ChatHistory": {
+  "SessionsFilePath": "./.looma/chat-sessions.json",
+  "SavedAnswersFilePath": "./.looma/saved-answers.json"
+}
+```
+
+Backs multi-turn chat sessions (`IChatUseCase`) and saved-answer artefacts
+(`ISavedAnswerUseCase`) — both local JSON files, same convention as
+`AnswerCache.FilePath`. Whole-file read/rewrite on every write, not built
+for a large number of sessions; fine for one local user's history.
+
+**Standalone mode only, currently.** McpClient mode has no way to do
+multi-turn chat yet — retrieval/generation happen server-side, and there's
+no `looma_chat` MCP tool exposing that (see `docs/mcp-server.md`'s known
+gaps). `IChatUseCase`/`ISavedAnswerUseCase` simply aren't registered in
+McpClient mode.
+
 ## `Security`
 
 ```json
