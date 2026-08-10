@@ -77,4 +77,23 @@ public sealed class RagOptions
     /// Raise this if answers feel too terse/repetitive for your use case.
     /// </summary>
     public float AnswerTemperature { get; set; } = 0.1f;
+
+    /// <summary>
+    /// Whether chat turns after the first rewrite the follow-up into a
+    /// standalone search query — using recent conversation history to
+    /// resolve pronouns/implicit references ("it", "that", "the other
+    /// one") into their actual subject — before embedding it for
+    /// retrieval. See <c>ChatCompletionUseCase.ReformulateQueryAsync</c>.
+    /// Default on: this is what actually fixes retrieval being blind to
+    /// what the conversation is about, the general case of a real bug hit
+    /// in testing (sticky attachment memory fixed the attachment-specific
+    /// version of this; this fixes it for ordinary document retrieval
+    /// too — "who's the author?" retrieving an unrelated document because
+    /// the raw follow-up alone has nothing to search on). The real cost is
+    /// latency, not quality: one more non-streaming LLM call, sequenced
+    /// BEFORE the visible streaming answer even starts, on every turn
+    /// after the first. Turn off if that pause matters more than
+    /// occasionally poor multi-turn retrieval on your hardware.
+    /// </summary>
+    public bool EnableQueryReformulation { get; set; } = true;
 }
