@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Looma.Application.Configuration;
+using Looma.Application.DocumentGeneration;
 using Looma.Application.Internal;
 using Looma.Core.Abstractions;
 using Looma.Core.Entities;
@@ -22,13 +23,22 @@ namespace Looma.Application.UseCases;
 /// a caption smuggled into the question got refused by that same rule
 /// even though the information was technically present in the prompt.
 ///
-/// Known limitation (inherited from the pre-split design, unchanged):
-/// retrieval is keyed on the latest message alone, not the full
-/// conversation — a follow-up like "what about the other one?" may
-/// retrieve poorly since the retrieval query itself has no context beyond
-/// that one message. Query reformulation (condensing history + follow-up
-/// into a self-contained search query before embedding) would fix this;
-/// not implemented yet.
+/// Query reformulation: retrieval used to be keyed on the latest message
+/// alone, not the full conversation — a follow-up like "what about the
+/// other one?" retrieved poorly since the retrieval query itself had no
+/// context beyond that one message (this is the general form of the
+/// "who's the author?" bug described below, for ordinary document
+/// retrieval rather than attachments specifically).
+/// <see cref="ReformulateQueryAsync"/> now condenses history + follow-up
+/// into a self-contained search query before embedding — toggleable via
+/// <see cref="RagOptions.EnableQueryReformulation"/> since it's a real
+/// latency-for-quality trade-off (one more non-streaming LLM call before
+/// the visible answer starts streaming), not a strict improvement in
+/// every dimension. The rewritten query is used ONLY for retrieval — the
+/// model still answers the user's ORIGINAL wording in
+/// <see cref="CompleteAsync"/>'s <c>message</c> parameter, never the
+/// rewritten version, so responses stay natural rather than echoing a
+/// robotic search-query phrasing.
 ///
 /// Grounding scope: the system prompt originally forbade using prior
 /// conversation turns as a source of facts at all (only for understanding
@@ -54,6 +64,21 @@ namespace Looma.Application.UseCases;
 /// every attachment's actual content from earlier in the SAME session
 /// (budget-capped, most recent first) into the context block on every
 /// later turn — not just what Looma chose to say about it.
+///
+/// Document-export follow-ups: a real case hit in testing — Looma
+/// correctly answered "who told [quote]?", then "Can you write it in a
+/// pdf?" got refused with the no-answer sentence, even though the quote
+/// had just been stated. Root cause: <c>MainPage</c>'s client-side
+/// <see cref="DocumentGenerationIntentDetector"/> (which decides whether
+/// to offer an "Export as..." button) had zero influence on THIS class's
+/// prompt — the model saw only the raw text and, per the grounding rule
+/// above, treated "write it in a pdf" as an ordinary question it
+/// couldn't answer rather than a request to restate already-grounded
+/// material. <see cref="BuildPrompt"/> now runs the same detector over
+/// the current message and, when it matches, appends an explicit note
+/// telling the model this is an export request — present the material,
+/// don't refuse — since the actual file generation happens separately,
+/// client-side, once the model's answer text exists.
 /// </summary>
 public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 {
@@ -89,6 +114,24 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
     /// </summary>
     private const int MaxStickyAttachmentChars = 4000;
 
+    /// <summary>
+    /// How many of the most recent prior turns get fed into query
+    /// reformulation (see <see cref="ReformulateQueryAsync"/>) — recent
+    /// turns are what usually determine what a follow-up's pronouns refer
+    /// to; older history rarely changes that, and keeping this small keeps
+    /// the reformulation prompt (and therefore its latency, which is
+    /// already this feature's main cost) small too.
+    /// </summary>
+    private const int MaxReformulationHistoryTurns = 6;
+
+    private const string ReformulationSystemPrompt =
+        "You rewrite a follow-up question into a standalone search query, using the conversation " +
+        "so far to resolve pronouns and implicit references (\"it\", \"that\", \"the other one\", " +
+        "\"this image\", etc.) into their actual subject. Output ONLY the rewritten query and " +
+        "nothing else — no explanation, no quotation marks, no preamble. If the follow-up is " +
+        "already standalone and doesn't depend on anything earlier in the conversation, output it " +
+        "completely unchanged. Keep it a short, specific search query, not a full sentence.";
+
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IChatClient _chatClient;
@@ -112,8 +155,12 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         string? attachmentContext = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var retrievalQuery = _ragOptions.EnableQueryReformulation
+            ? await ReformulateQueryAsync(history, message, cancellationToken).ConfigureAwait(false)
+            : message;
+
         var queryEmbedding = await _embeddingGenerator
-            .GenerateVectorAsync(message, cancellationToken: cancellationToken)
+            .GenerateVectorAsync(retrievalQuery, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var citations = await RagRetrieval
@@ -138,6 +185,77 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         }
 
         yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };
+    }
+
+    /// <summary>
+    /// Rewrites <paramref name="currentMessage"/> into a standalone search
+    /// query using recent conversation history, so retrieval isn't blind
+    /// to what the conversation is actually about — see the class doc
+    /// comment's "Query reformulation" section. Returns
+    /// <paramref name="currentMessage"/> unchanged on the very first turn
+    /// (no history to resolve pronouns against) or if the reformulation
+    /// call itself fails for any reason: this is a retrieval-quality
+    /// optimization, not a correctness requirement, so a model hiccup here
+    /// should degrade to "search with the raw follow-up, same as before
+    /// this feature existed" rather than fail the whole turn.
+    /// </summary>
+    private async Task<string> ReformulateQueryAsync(
+        IReadOnlyList<ChatMessageEntry> priorMessages,
+        string currentMessage,
+        CancellationToken cancellationToken)
+    {
+        if (priorMessages.Count == 0)
+        {
+            return currentMessage;
+        }
+
+        var recentHistory = priorMessages.Count > MaxReformulationHistoryTurns
+            ? priorMessages.Skip(priorMessages.Count - MaxReformulationHistoryTurns).ToList()
+            : priorMessages;
+
+        var historyText = new StringBuilder();
+        foreach (var entry in recentHistory)
+        {
+            historyText.Append(entry.Role == ChatMessageRole.User ? "User: " : "Assistant: ")
+                .Append(entry.Text).Append('\n');
+        }
+
+        var reformulationMessages = new List<ChatMessage>
+        {
+            new(ChatRole.System, ReformulationSystemPrompt),
+            new(ChatRole.User,
+                $"Conversation so far:\n{historyText}\n" +
+                $"Follow-up question: {currentMessage}\n\n" +
+                "Standalone search query:")
+        };
+
+        try
+        {
+            // Non-streaming — there's no point streaming a query rewrite
+            // token by token when nothing downstream can use it until it's
+            // complete anyway. Temperature 0 and a small output cap: this
+            // is a mechanical rewriting task, not creative generation, and
+            // it's already adding latency before the real (streaming)
+            // answer can start — no reason to let it run long.
+            var response = await _chatClient.GetResponseAsync(
+                reformulationMessages,
+                new ChatOptions { Temperature = 0f, MaxOutputTokens = 60 },
+                cancellationToken).ConfigureAwait(false);
+
+            var rewritten = response.Text?.Trim();
+            return string.IsNullOrWhiteSpace(rewritten) ? currentMessage : rewritten;
+        }
+        catch (OperationCanceledException)
+        {
+            // A genuinely cancelled turn (superseded by a newer message,
+            // same as MainPage.OnSendClicked's own handling) should still
+            // cancel — only actual failures fall back to the raw message.
+            throw;
+        }
+        catch (Exception)
+        {
+            return currentMessage;
+        }
     }
 
     private static List<ChatMessage> BuildPrompt(
@@ -195,12 +313,25 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
                 entry.Text));
         }
 
+        // See the class doc comment's "Document-export follow-ups" section
+        // — same detector MainPage uses to decide whether to offer an
+        // "Export as..." button, reused here so the model itself knows a
+        // message like "write it in a pdf" is asking it to restate
+        // already-grounded material for export, not asking a new question
+        // it can't answer.
+        var exportNote = DocumentGenerationIntentDetector.Detect(currentMessage) is not null
+            ? " Note: this message looks like a request to prepare the relevant material for " +
+              "export as a document — if it's covered by the context above or something you " +
+              "already said earlier in this conversation, present it clearly and completely " +
+              "instead of refusing; the export itself happens separately once you've answered."
+            : string.Empty;
+
         var userMessage = $"Context:\n{context}\n" +
                            $"Answer using the context above and/or anything you already said " +
                            $"earlier in this conversation — summarizing, combining, translating, or " +
                            $"rephrasing either is fine, but don't add any new fact that isn't in one " +
                            $"of the two. If neither covers the current question, reply with exactly: " +
-                           $"\"{NoAnswerSentence}\"\n\n" +
+                           $"\"{NoAnswerSentence}\"{exportNote}\n\n" +
                            $"Question: {currentMessage}";
 
         messages.Add(new ChatMessage(ChatRole.User, userMessage));

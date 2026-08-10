@@ -72,7 +72,8 @@
     "TopK": 5,
     "MinRelevanceScore": 0.55,
     "MaxAnswerTokens": null,
-    "AnswerTemperature": 0.1
+    "AnswerTemperature": 0.1,
+    "EnableQueryReformulation": true
   },
   "AnswerCache": {
     "Enabled": true,

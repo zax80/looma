@@ -118,7 +118,8 @@ Full detail in `docs/mcp-server.md`. Summary:
   "TopK": 5,
   "MinRelevanceScore": 0.55,
   "MaxAnswerTokens": null,
-  "AnswerTemperature": 0.1
+  "AnswerTemperature": 0.1,
+  "EnableQueryReformulation": true
 }
 ```
 
@@ -137,6 +138,7 @@ indexed — it won't.
 | `TopK` | Default number of results `search`/`answer` retrieve. |
 | `MinRelevanceScore` | Cosine similarity threshold a chunk must clear to be used as `answer` context. Calibrated against real nomic-embed-text scores (0.55) — see `RagOptions.cs`'s doc comment before changing this; use `looma search "<query>" --min-score 0` to see real scores first, don't guess. |
 | `MaxAnswerTokens` | Optional hard cap on generation length. `null` by default — a safety net against runaway generation, not a speed optimization; leave it unset unless you've actually hit that. |
+| `EnableQueryReformulation` | Chat only (not `answer`/`search`, which have no history to reformulate against). On by default: rewrites a follow-up like "who's the author?" into a standalone search query using recent conversation history, before embedding it for retrieval — see `ChatCompletionUseCase`'s doc comment. Costs one extra non-streaming LLM call before the visible answer starts streaming, on every turn after the first. Set `false` if that added latency matters more than occasionally poor multi-turn retrieval on your hardware. |
 | `AnswerTemperature` | Chat sampling temperature for `answer`. Low (`0.1`) by default, deliberately — grounded Q&A should stick to the provided context, not free-associate. |
 
 ## `AnswerCache`
