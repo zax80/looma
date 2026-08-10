@@ -175,10 +175,14 @@ Backs multi-turn chat sessions (`IChatUseCase`) and saved-answer artefacts
 `AnswerCache.FilePath`. Whole-file read/rewrite on every write, not built
 for a large number of sessions; fine for one local user's history.
 
-**Standalone mode only, currently.** McpClient mode has no way to do
-multi-turn chat yet — retrieval/generation happen server-side, and there's
-no `looma_chat` MCP tool exposing that (see `docs/mcp-server.md`'s known
-gaps). `IChatUseCase`/`ISavedAnswerUseCase` simply aren't registered in
+**Both modes.** In Standalone mode these files back `IChatUseCase`/
+`ISavedAnswerUseCase` directly. In McpClient mode they're read/written by
+the same local files via `RemoteChatUseCase` — only generation
+(retrieval + the LLM call) actually goes to the remote server, via the
+`looma_chat` MCP tool; the session/history files themselves are never
+sent anywhere (see `docs/mcp-server.md`'s "Chat session storage"
+section). Voice input and image-attach captioning also work in both
+modes now, via the `looma_transcribe`/`looma_caption_image` MCP tools in
 McpClient mode.
 
 ## `Security`

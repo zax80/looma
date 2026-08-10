@@ -27,19 +27,30 @@ public interface IChatUseCase
     /// persisted to the session as a side effect of enumerating this.
     /// </summary>
     /// <param name="attachmentContext">
-    /// Extra grounding material for this turn only — e.g. a caption for an
+    /// Extra grounding material for this turn — e.g. a caption for an
     /// image the user attached — that the model is told it may answer
     /// from, same as retrieved document excerpts. NOT embedded for
-    /// retrieval and NOT persisted as part of the message text (so
-    /// reopening the session later won't show it) — deliberately separate
-    /// from <paramref name="message"/> so it can't accidentally leak into
-    /// what gets searched for or stored. See ChatUseCase's own doc comment
-    /// for why this exists as its own parameter instead of being folded
-    /// into the message text.
+    /// retrieval and NOT added to the global document index — but IS
+    /// persisted (on <see cref="ChatMessageEntry.AttachmentContent"/>) so
+    /// LATER turns in THIS SAME session can still draw on it, re-surfaced
+    /// by <c>ChatCompletionUseCase</c>'s sticky-attachment handling.
+    /// Deliberately a separate parameter from <paramref name="message"/>
+    /// so it can't accidentally leak into what gets searched for or into
+    /// the question text itself. See ChatUseCase's own doc comment for why
+    /// it's split out this way.
+    /// </param>
+    /// <param name="attachmentLabel">
+    /// Just the attached file's name (e.g. "invoice.pdf"), if any —
+    /// persisted alongside <paramref name="attachmentContext"/>
+    /// (on <see cref="ChatMessageEntry.AttachmentLabel"/>) purely for
+    /// display: a reopened session shows "📎 invoice.pdf" next to the turn
+    /// that used it, and later turns' sticky-attachment context block
+    /// labels this material by name.
     /// </param>
     IAsyncEnumerable<AnswerToken> SendMessageAsync(
         string sessionId,
         string message,
         string? attachmentContext = null,
+        string? attachmentLabel = null,
         CancellationToken cancellationToken = default);
 }

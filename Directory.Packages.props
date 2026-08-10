@@ -117,6 +117,23 @@
     -->
     <PackageVersion Include="Plugin.Maui.Audio" Version="4.0.0" />
 
+    <!--
+      CommunityToolkit.Maui was tried here for document export's "Save As"
+      dialog (IFileSaver) and REMOVED after a real, reproduced failure —
+      not a hypothetical concern. 15.0.0/14.x fail to even restore
+      (NU1605: need Microsoft.Maui.Controls >= 10.0.30/10.0.60, this repo's
+      installed workload only provides 10.0.20). 13.0.0 restores and
+      builds fine (its own floor is >= 10.0.10), but crashes the app
+      instantly at startup with a native fault inside Microsoft.UI.Xaml.dll
+      itself (Windows Event Viewer: APPCRASH, exception code 0xc000027b) —
+      a binary mismatch between what 13.0.0 was built against and the
+      WinAppSDK/WinUI runtime actually installed, below the .NET managed
+      layer entirely. Document export now writes straight to a fixed
+      folder via plain System.IO instead (see MainPage.OnExportDocumentClicked) —
+      no third-party package, no native interop, nothing that can version-skew.
+    -->
+
+
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
