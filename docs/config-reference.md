@@ -119,7 +119,10 @@ Full detail in `docs/mcp-server.md`. Summary:
   "MinRelevanceScore": 0.55,
   "MaxAnswerTokens": null,
   "AnswerTemperature": 0.1,
-  "EnableQueryReformulation": true
+  "EnableQueryReformulation": true,
+  "EnableAdaptiveThreshold": true,
+  "AdaptiveFloorScore": 0.40,
+  "AdaptiveThresholdMargin": 0.15
 }
 ```
 
@@ -139,6 +142,9 @@ indexed — it won't.
 | `MinRelevanceScore` | Cosine similarity threshold a chunk must clear to be used as `answer` context. Calibrated against real nomic-embed-text scores (0.55) — see `RagOptions.cs`'s doc comment before changing this; use `looma search "<query>" --min-score 0` to see real scores first, don't guess. |
 | `MaxAnswerTokens` | Optional hard cap on generation length. `null` by default — a safety net against runaway generation, not a speed optimization; leave it unset unless you've actually hit that. |
 | `EnableQueryReformulation` | Chat only (not `answer`/`search`, which have no history to reformulate against). On by default: rewrites a follow-up like "who's the author?" into a standalone search query using recent conversation history, before embedding it for retrieval — see `ChatCompletionUseCase`'s doc comment. Costs one extra non-streaming LLM call before the visible answer starts streaming, on every turn after the first. Set `false` if that added latency matters more than occasionally poor multi-turn retrieval on your hardware. |
+| `EnableAdaptiveThreshold` | Chat only, same scope as `EnableQueryReformulation`. On by default: instead of a flat `MinRelevanceScore` cutoff applied identically to every query, keeps whichever of the TopK candidates score within `AdaptiveThresholdMargin` of THAT query's own best match — a hard/terse query's best hit at 0.58 can still keep a genuinely close second at 0.56, while an easy query's runner-up at 0.60 gets cut if its best hit was 0.85. No extra retrieval or LLM call. Can only prune what a flat floor would've kept, never add what it would've excluded, so there's little reason to turn this off. |
+| `AdaptiveFloorScore` | The floor `EnableAdaptiveThreshold` searches against instead of `MinRelevanceScore` — deliberately lower (but still above the observed 0.44-0.50 false-positive band, see `MinRelevanceScore` above) so a hard query's true positive is still fetched as a candidate; `AdaptiveThresholdMargin` then decides whether it's actually kept. Ignored when `EnableAdaptiveThreshold` is `false`. |
+| `AdaptiveThresholdMargin` | How far below the best-scoring candidate a runner-up can fall and still be kept, when `EnableAdaptiveThreshold` is on. Reasoned starting point (0.15), not measured-optimal — same "validate with `looma search` before tuning further" caveat as `MinRelevanceScore`. |
 | `AnswerTemperature` | Chat sampling temperature for `answer`. Low (`0.1`) by default, deliberately — grounded Q&A should stick to the provided context, not free-associate. |
 
 ## `AnswerCache`

@@ -79,6 +79,61 @@ public sealed class RagOptions
     public float AnswerTemperature { get; set; } = 0.1f;
 
     /// <summary>
+    /// Chat only, same scope as <see cref="EnableQueryReformulation"/> —
+    /// see <c>RagRetrieval.RetrieveCitationsAsync</c>. Instead of a single
+    /// fixed <see cref="MinRelevanceScore"/> cutoff applied the same way to
+    /// every query, this keeps whichever of the TopK candidates score
+    /// within <see cref="AdaptiveThresholdMargin"/> of the BEST match for
+    /// THIS query, rather than a flat absolute floor. The problem a flat
+    /// floor has: it's calibrated against an average case, but real queries
+    /// vary — an easy query might have five chunks all scoring 0.75+ (a
+    /// flat floor wrongly excludes none of them, fine), while a harder,
+    /// terser, or more obliquely-phrased query might have its best genuine
+    /// match score only 0.58, with the next-best merely-related chunk right
+    /// behind at 0.56 — a flat floor of 0.55 keeps both even though the
+    /// second is clearly weaker relative to the first for that query.
+    /// Adaptive thresholding fixes the second case without touching the
+    /// first: it always keeps the top match (whatever its absolute score,
+    /// down to <see cref="AdaptiveFloorScore"/>) and only keeps runners-up
+    /// that are genuinely close to it, not just "above some fixed line."
+    /// No extra retrieval or LLM call — same TopK candidates already
+    /// fetched, just filtered smarter. Default on since it can only prune
+    /// what a flat floor would have kept, never add anything a flat floor
+    /// would have excluded.
+    /// </summary>
+    public bool EnableAdaptiveThreshold { get; set; } = true;
+
+    /// <summary>
+    /// The floor <see cref="EnableAdaptiveThreshold"/> searches against
+    /// instead of <see cref="MinRelevanceScore"/> — deliberately lower, so
+    /// a genuinely relevant chunk on a hard query (real scores as low as
+    /// 0.55-0.58 were observed for true positives — see
+    /// <see cref="MinRelevanceScore"/>'s doc comment) still gets retrieved
+    /// as a CANDIDATE even if it would've been excluded outright by the
+    /// stricter flat floor; <see cref="AdaptiveThresholdMargin"/> is what
+    /// then decides whether it's actually kept, based on the rest of that
+    /// query's own results. Set above the observed false-positive band
+    /// (0.44-0.50) so this never widens the candidate pool into chunks
+    /// already known to be noise. Same "reasoned starting point, not
+    /// measured-optimal" caveat as <see cref="MinRelevanceScore"/> — use
+    /// <c>looma search "&lt;query&gt;" --min-score 0</c> to see real score
+    /// spreads before tuning either value further.
+    /// </summary>
+    public float AdaptiveFloorScore { get; set; } = 0.40f;
+
+    /// <summary>
+    /// How far below the best-scoring candidate a runner-up can fall and
+    /// still count as "genuinely close" — see
+    /// <see cref="EnableAdaptiveThreshold"/>. 0.15 is a starting point, not
+    /// a measured-optimal one: wide enough that a cluster of similarly-
+    /// worded chunks about the same fact (a common real shape — e.g. a
+    /// fact split across an original chunk and its overlap region) doesn't
+    /// get needlessly pruned down to just one, narrow enough that a
+    /// clearly-secondary match well below the best one still gets cut.
+    /// </summary>
+    public float AdaptiveThresholdMargin { get; set; } = 0.15f;
+
+    /// <summary>
     /// Whether chat turns after the first rewrite the follow-up into a
     /// standalone search query — using recent conversation history to
     /// resolve pronouns/implicit references ("it", "that", "the other

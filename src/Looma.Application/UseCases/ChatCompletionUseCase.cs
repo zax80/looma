@@ -23,6 +23,15 @@ namespace Looma.Application.UseCases;
 /// a caption smuggled into the question got refused by that same rule
 /// even though the information was technically present in the prompt.
 ///
+/// Adaptive relevance thresholding: retrieval's citation cutoff used to be
+/// a single flat <see cref="RagOptions.MinRelevanceScore"/> applied the
+/// same way to every query — see
+/// <see cref="RagOptions.EnableAdaptiveThreshold"/>'s doc comment for why
+/// that under-serves both easy and hard queries. <c>RagRetrieval</c> now
+/// keeps whichever candidates score close to THIS query's own best match,
+/// not just "above a fixed line" — no extra retrieval or LLM call, just a
+/// smarter filter over the same TopK candidates.
+///
 /// Query reformulation: retrieval used to be keyed on the latest message
 /// alone, not the full conversation — a follow-up like "what about the
 /// other one?" retrieved poorly since the retrieval query itself had no
@@ -164,7 +173,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
             .ConfigureAwait(false);
 
         var citations = await RagRetrieval
-            .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions.TopK, _ragOptions.MinRelevanceScore, cancellationToken)
+            .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions, cancellationToken)
             .ConfigureAwait(false);
 
         var promptMessages = BuildPrompt(history, message, citations, attachmentContext);
