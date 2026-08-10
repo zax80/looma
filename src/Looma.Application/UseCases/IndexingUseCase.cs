@@ -56,6 +56,49 @@ public sealed class IndexingUseCase : IIndexingUseCase
         _imageEmbeddingModelOptions = imageEmbeddingModelOptions.Value;
     }
 
+    /// <summary>
+    /// Upper bound on how many chunks go into one embedding API call — the
+    /// batching in <see cref="GenerateEmbeddingsAsync"/> is what actually
+    /// speeds indexing up; this cap just guards against one enormous
+    /// request for a single pathologically large file, same "blunt but
+    /// simple safeguard" spirit as MainPage's MaxAttachedDocumentChars.
+    /// </summary>
+    private const int EmbeddingBatchSize = 32;
+
+    /// <summary>
+    /// Embeds every string in <paramref name="texts"/> in batches instead
+    /// of one call per chunk. This replaced a real, measured inefficiency:
+    /// the original version of this method made one sequential embedding
+    /// round-trip per chunk, so a document with (say) 50 chunks made 50
+    /// separate calls to the embedding model. Microsoft.Extensions.AI's
+    /// <see cref="IEmbeddingGenerator{TInput,TEmbedding}"/> already
+    /// supports embedding several inputs in one call
+    /// (<c>GenerateAsync(IEnumerable&lt;TInput&gt;, ...)</c>) — same
+    /// embeddings either way, just computed together. Returned in the same
+    /// order as <paramref name="texts"/> (<c>GeneratedEmbeddings&lt;T&gt;</c>
+    /// preserves input order).
+    /// </summary>
+    private async Task<List<ReadOnlyMemory<float>>> GenerateEmbeddingsAsync(
+        IReadOnlyList<string> texts, CancellationToken cancellationToken)
+    {
+        var results = new List<ReadOnlyMemory<float>>(texts.Count);
+
+        for (var offset = 0; offset < texts.Count; offset += EmbeddingBatchSize)
+        {
+            var batch = texts.Skip(offset).Take(EmbeddingBatchSize).ToList();
+            var embeddings = await _embeddingGenerator
+                .GenerateAsync(batch, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var embedding in embeddings)
+            {
+                results.Add(embedding.Vector);
+            }
+        }
+
+        return results;
+    }
+
     public async IAsyncEnumerable<IndexingProgress> IndexAsync(
         string path,
         bool recursive = true,
@@ -160,19 +203,19 @@ public sealed class IndexingUseCase : IIndexingUseCase
     {
         var text = await DocumentTextExtractor.ExtractAsync(file, cancellationToken).ConfigureAwait(false);
         var chunks = TextChunker.Chunk(text, _ragOptions.ChunkSize, _ragOptions.ChunkOverlap);
+        var embeddings = await GenerateEmbeddingsAsync(chunks.Select(c => c.Content).ToList(), cancellationToken)
+            .ConfigureAwait(false);
 
         var indexedAtUtc = DateTimeOffset.UtcNow;
         var records = new List<VectorRecord>(chunks.Count);
 
-        foreach (var chunk in chunks)
+        for (var idx = 0; idx < chunks.Count; idx++)
         {
-            var embedding = await _embeddingGenerator.GenerateVectorAsync(chunk.Content, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
+            var chunk = chunks[idx];
             records.Add(new VectorRecord
             {
                 Id = ChunkIdGenerator.Generate(file, chunk.Index),
-                Embedding = embedding,
+                Embedding = embeddings[idx],
                 Content = chunk.Content,
                 Metadata = new ChunkMetadata
                 {
@@ -224,17 +267,17 @@ public sealed class IndexingUseCase : IIndexingUseCase
             : $"{caption.Caption}\n\nText visible in the image:\n{caption.OcrText}";
 
         var chunks = TextChunker.Chunk(captionText, _ragOptions.ChunkSize, _ragOptions.ChunkOverlap);
+        var chunkEmbeddings = await GenerateEmbeddingsAsync(chunks.Select(c => c.Content).ToList(), cancellationToken)
+            .ConfigureAwait(false);
         var textRecords = new List<VectorRecord>(chunks.Count);
 
-        foreach (var chunk in chunks)
+        for (var idx = 0; idx < chunks.Count; idx++)
         {
-            var embedding = await _embeddingGenerator.GenerateVectorAsync(chunk.Content, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
+            var chunk = chunks[idx];
             textRecords.Add(new VectorRecord
             {
                 Id = ChunkIdGenerator.Generate(file, chunk.Index),
-                Embedding = embedding,
+                Embedding = chunkEmbeddings[idx],
                 Content = chunk.Content,
                 Metadata = new ChunkMetadata
                 {
@@ -305,18 +348,18 @@ public sealed class IndexingUseCase : IIndexingUseCase
         }
 
         var chunks = TranscriptChunker.Chunk(segments, _ragOptions.ChunkSize, _ragOptions.ChunkOverlap);
+        var embeddings = await GenerateEmbeddingsAsync(chunks.Select(c => c.Content).ToList(), cancellationToken)
+            .ConfigureAwait(false);
         var indexedAtUtc = DateTimeOffset.UtcNow;
         var records = new List<VectorRecord>(chunks.Count);
 
-        foreach (var chunk in chunks)
+        for (var idx = 0; idx < chunks.Count; idx++)
         {
-            var embedding = await _embeddingGenerator.GenerateVectorAsync(chunk.Content, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
+            var chunk = chunks[idx];
             records.Add(new VectorRecord
             {
                 Id = ChunkIdGenerator.Generate(file, chunk.Index),
-                Embedding = embedding,
+                Embedding = embeddings[idx],
                 Content = chunk.Content,
                 Metadata = new ChunkMetadata
                 {

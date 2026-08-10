@@ -113,8 +113,8 @@ Full detail in `docs/mcp-server.md`. Summary:
 ```json
 "RAG": {
   "Sources": [{ "Type": "FileSystem", "Path": "./data", "FileTypes": [...], "Recursive": true }],
-  "ChunkSize": 400,
-  "ChunkOverlap": 50,
+  "ChunkSize": 800,
+  "ChunkOverlap": 100,
   "TopK": 5,
   "MinRelevanceScore": 0.55,
   "MaxAnswerTokens": null,
@@ -133,7 +133,7 @@ indexed — it won't.
 
 | Field | Meaning |
 | --- | --- |
-| `ChunkSize` / `ChunkOverlap` | Characters (not tokens — no tokenizer is wired up yet), treated as an upper bound on whole lines/segments packed together, never a raw character-slice window. Applies uniformly to text, image captions, and audio transcripts. |
+| `ChunkSize` / `ChunkOverlap` | Characters (not tokens — no tokenizer is wired up yet), treated as an upper bound on whole lines/segments packed together, never a raw character-slice window. Applies uniformly to text, image captions, and audio transcripts. Raised from 400/50 to 800/100 — see `RagOptions.cs`'s doc comment for the reasoning (both models' real context budgets have room for bigger, more complete chunks). Changing this only affects newly indexed content — re-index (`looma index --clear`) to apply a new value to files already in the collection. |
 | `TopK` | Default number of results `search`/`answer` retrieve. |
 | `MinRelevanceScore` | Cosine similarity threshold a chunk must clear to be used as `answer` context. Calibrated against real nomic-embed-text scores (0.55) — see `RagOptions.cs`'s doc comment before changing this; use `looma search "<query>" --min-score 0` to see real scores first, don't guess. |
 | `MaxAnswerTokens` | Optional hard cap on generation length. `null` by default — a safety net against runaway generation, not a speed optimization; leave it unset unless you've actually hit that. |

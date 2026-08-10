@@ -67,8 +67,8 @@
         "Recursive": true
       }
     ],
-    "ChunkSize": 400,
-    "ChunkOverlap": 50,
+    "ChunkSize": 800,
+    "ChunkOverlap": 100,
     "TopK": 5,
     "MinRelevanceScore": 0.55,
     "MaxAnswerTokens": null,

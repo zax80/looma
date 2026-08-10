@@ -18,9 +18,24 @@ public sealed class RagOptions
     /// character window — see <c>TextChunker</c> for why (splitting a line
     /// mid-word corrupted real content: "IVAN SPAHIYSKI" became "N
     /// SPAHIYSKI" at a chunk boundary).
+    ///
+    /// Raised from the original 400/50 (~100 tokens/chunk) — that was far
+    /// below what either model in the pipeline can actually use:
+    /// nomic-embed-text embeds up to 8192 tokens per input, and the chat
+    /// model's own context (also 8192 tokens, see BaseModel.ContextSize)
+    /// has to hold TopK citations plus conversation history plus the
+    /// system prompt together, not one citation alone. 800/100 (~200
+    /// tokens/chunk, same 12.5% overlap ratio as before) means each
+    /// retrieved chunk carries more complete context — directly relevant
+    /// to bugs like a fact getting split across a chunk boundary — while 5
+    /// citations at this size (~1000 tokens) still leaves most of the
+    /// context window for everything else. Like MinRelevanceScore, this is
+    /// a reasoned starting point, not a measured-optimal one — use `looma
+    /// search`/`looma answer` on real documents to validate before tuning
+    /// further, don't guess past this blind.
     /// </summary>
-    public int ChunkSize { get; set; } = 400;
-    public int ChunkOverlap { get; set; } = 50;
+    public int ChunkSize { get; set; } = 800;
+    public int ChunkOverlap { get; set; } = 100;
 
     public int TopK { get; set; } = 5;
 
