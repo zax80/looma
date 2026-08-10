@@ -38,12 +38,37 @@ interfaces, never which mode is active.
    export LOOMA_MCP_API_KEY="<a long random string>"
    ```
 
-2. Run from the directory containing `config.json` (same convention as the
-   CLI — `--config <path>` also works):
+2. **Don't use `dotnet run --project` for this one — launch the built DLL
+   directly instead.** `Looma.MCP.Server` uses `Microsoft.NET.Sdk.Web` (the
+   ASP.NET Core SDK), and — confirmed via a real run, not a theoretical
+   concern — `dotnet run --project` for a Web SDK project sets the
+   process's actual working directory to the *project's own folder*,
+   regardless of the invoking shell's directory and with no
+   `launchSettings.json` involved at all. That breaks more than just
+   finding `config.json`: `RAG.Sources[0].Path` (`./data`) is also resolved
+   against that same (wrong) working directory, so indexing silently finds
+   zero files — passing `--config` alone isn't enough to fix this.
+   `Looma.CLI` (plain console SDK) doesn't have this quirk, so the
+   identical-looking `dotnet run --project src/Looma.CLI` from the repo
+   root works fine; the server's won't. `dotnet <dll>` has no such
+   SDK-specific behavior — it just inherits the shell's real CWD, like any
+   normal process — so build once, then run the DLL from the repo root:
 
+   ```powershell
+   # PowerShell, from the repo root
+   dotnet build
+   dotnet src\Looma.MCP.Server\bin\Debug\net10.0\looma-mcp-server.dll
    ```
-   dotnet run --project src/Looma.MCP.Server
+
+   ```bash
+   # bash, from the repo root
+   dotnet build
+   dotnet src/Looma.MCP.Server/bin/Debug/net10.0/looma-mcp-server.dll
    ```
+
+   No `--config` needed this way — both `config.json` and `RAG.Sources[0].Path`
+   resolve correctly against the repo root. `--config <path>` still works
+   if you need to point at a config file somewhere else.
 
    First run does the same model auto-provisioning the CLI does (Ollama
    pull for Base/Embedding models — fatal if it fails; Vision model, CLIP,
