@@ -10,10 +10,22 @@
         <Grid Grid.Column="0" BackgroundColor="#F4F4F4" RowDefinitions="Auto,Auto,*,Auto" Padding="12" RowSpacing="8">
             <Label Grid.Row="0" Text="Looma" FontAttributes="Bold" FontSize="20" />
             <Button Grid.Row="1" Text="+ New chat" Clicked="OnNewChatClicked" />
-            <CollectionView Grid.Row="2" x:Name="SessionsView" SelectionMode="Single" SelectionChanged="OnSessionSelected">
-                <CollectionView.ItemTemplate>
+
+            <!-- BindableLayout, NOT CollectionView — see the doc comment on
+                 the transcript pager below (Grid.Row="2" in the chat column)
+                 for why: any WinUI ScrollViewer-backed control, including
+                 this same CollectionView, reproduces the native crash the
+                 moment it's scrolled. No scrolling here at all — sessions
+                 render as a plain list; rows are tapped via a
+                 TapGestureRecognizer instead of CollectionView's built-in
+                 SelectionChanged. -->
+            <VerticalStackLayout Grid.Row="2" x:Name="SessionsStack" Spacing="0">
+                <BindableLayout.ItemTemplate>
                     <DataTemplate>
                         <Grid Padding="6,8" ColumnDefinitions="*,Auto">
+                            <Grid.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnSessionTapped" />
+                            </Grid.GestureRecognizers>
                             <Label Grid.Column="0"
                                    Text="{Binding Title}"
                                    LineBreakMode="TailTruncation"
@@ -32,8 +44,8 @@
                                     ToolTipProperties.Text="Delete this chat" />
                         </Grid>
                     </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
             <Button Grid.Row="3" Text="Saved answers" Clicked="OnViewSavedAnswersClicked" />
         </Grid>
 
@@ -58,21 +70,36 @@
 
             <BoxView Grid.Row="1" HeightRequest="1" Color="LightGray" />
 
-            <CollectionView Grid.Row="2" x:Name="TranscriptView">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate>
-                        <VerticalStackLayout Padding="0,8" Spacing="2">
-                            <Label Text="{Binding RoleLabel}" FontAttributes="Bold" FontSize="12" />
-                            <Label Text="{Binding Text}" LineBreakMode="WordWrap" FontSize="15" />
-                            <Label Text="{Binding CitationsText}" FontSize="11" TextColor="Gray" LineBreakMode="WordWrap" />
-                        </VerticalStackLayout>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
+            <!-- WebView, NOT a native scrollable control — see
+                 MainPage.xaml.cs's BuildTranscriptHtml doc comment for the
+                 full story. Short version: CollectionView, then
+                 ScrollView+BindableLayout, then a no-scroll pager were all
+                 tried in that order; the first two both wrap a WinUI
+                 ScrollViewer internally and reproduced an identical native
+                 crash (Microsoft.UI.Xaml.dll, exception 0xC000027B) the
+                 instant scrolling touched them — a real, still-open,
+                 unfixed WinUI3 bug (microsoft/microsoft-ui-xaml #6472,
+                 #9793), not anything in this app's code. The pager avoided
+                 that but couldn't offer real click-and-drag text selection
+                 the way a normal chat UI does. A WebView sidesteps both
+                 problems at once: on Windows it's backed by WebView2
+                 (Chromium), which does its own scrolling and text selection
+                 entirely inside the Chromium engine — a different code path
+                 from the native WinUI ScrollViewer that's crashing. The
+                 transcript is plain HTML rebuilt/patched in code-behind.
+                 There's no separate "Copy" button anymore either — real
+                 click-and-drag text selection plus the OS's own Ctrl+C
+                 makes one redundant, which a Label/Editor never could
+                 offer. "Export as..." is still needed as an explicit
+                 action (it writes a file, not a clipboard copy) and is an
+                 HTML link using a custom URI scheme (looma-export:)
+                 intercepted in OnTranscriptWebViewNavigating, since a
+                 WebView has no native Button.Clicked equivalent. -->
+            <WebView Grid.Row="2" x:Name="TranscriptWebView" Navigating="OnTranscriptWebViewNavigating" />
 
             <Grid Grid.Row="3" RowDefinitions="Auto,Auto" RowSpacing="6">
 
-                <!-- Shown after "Attach image" — the caption that will be sent as context, and a way to drop it before sending. -->
+                <!-- Shown after attaching an image or document — a preview of what will be sent as context, and a way to drop it before sending. -->
                 <Grid Grid.Row="0" x:Name="PendingAttachmentRow" ColumnDefinitions="*,Auto" IsVisible="False">
                     <Label Grid.Column="0" x:Name="PendingAttachmentLabel" FontSize="12" TextColor="Gray" LineBreakMode="TailTruncation" VerticalOptions="Center" />
                     <Button Grid.Column="1" Text="✕" Clicked="OnRemovePendingAttachmentClicked" WidthRequest="32" Padding="0" />
@@ -90,8 +117,8 @@
                             Grid.Column="1"
                             Text="📎"
                             WidthRequest="44"
-                            Clicked="OnAttachImageClicked"
-                            ToolTipProperties.Text="Attach an image to ask about" />
+                            Clicked="OnAttachClicked"
+                            ToolTipProperties.Text="Attach an image or document to ask about" />
                     <Entry x:Name="QuestionEntry"
                            Grid.Column="2"
                            Placeholder="Ask a question about your documents..."

@@ -77,6 +77,17 @@ Claude Desktop's custom MCP server config — before relying on this.
 | `looma_answer` | `IAnswerUseCase` | Streams generated tokens as progress notifications; final result includes citations. |
 | `looma_count` | `ICountUseCase` | Single call, no streaming; returns the raw count as plain text. |
 | `looma_clear_cache` | `IAnswerCache.ClearAsync` | Same operation as the CLI's `clear-cache` command. |
+| `looma_chat` | `IChatCompletionUseCase` | Stateless: caller supplies the full prior-turn history (`historyJson`) on every call. Chat sessions themselves live client-side only — see below. |
+| `looma_transcribe` | `ITranscriptionUseCase` | Single call, no streaming. Audio travels as base64 (`audioBase64`); returns the transcript as plain text. |
+| `looma_caption_image` | `IImageCaptionUseCase` | Single call, no streaming. Image travels as base64 (`imageBase64`); returns `ImageCaptionResult` as JSON. |
+| `looma_extract_document` | `IDocumentExtractionUseCase` | Single call, no streaming. Document travels as base64 (`documentBase64`) plus `fileName` (for its extension); returns extracted plain text. |
+
+Document *export* (turning a chat answer into a real .docx/.md/.txt file,
+`IDocumentExportUseCase`) has no MCP tool at all, deliberately — it's pure
+local text formatting of an answer the client already has in hand, no
+Qdrant/Ollama involved, so `Looma.MCP.Client` registers the exact same
+`DocumentExportUseCase` Standalone mode uses rather than calling out to
+the server for it.
 
 All of these forward real-time progress via MCP's `notifications/progress`
 mechanism (tied to the caller's `progressToken`, works in stateless HTTP
@@ -134,3 +145,27 @@ connecting unauthenticated.
   (the only method the CLI ever calls directly); the other three methods
   throw, since real caching happens entirely server-side inside the remote
   `looma_answer` tool in this mode. Documented on the adapter itself.
+- Voice input, image-attach captioning, and document-attach extraction all
+  use base64-encoded whole-file tool parameters (`looma_transcribe`/
+  `looma_caption_image`/`looma_extract_document` above) rather than a
+  proper binary/streaming transport — fine for a single short voice clip,
+  image, or document, but not something to build a bulk upload path on.
+- PDF export isn't implemented — `IDocumentExportUseCase` only produces
+  .docx/.md/.txt. If a chat message asks for a PDF, the export button
+  falls back to .docx and says so (see `DocumentGenerationIntent.PdfRequestedButUnsupported`).
+- The "offer a document export" trigger (`DocumentGenerationIntentDetector`)
+  is plain keyword matching on the user's message, not real intent
+  understanding — see its own doc comment for the specific heuristic and
+  its known false-negative bias.
+
+## Chat session storage (client-side only)
+
+`looma_chat` is deliberately stateless — it takes a full history and
+returns one reply, nothing more. Session persistence (`IChatUseCase`'s
+`StartSessionAsync`/`ListSessionsAsync`/etc.) is handled entirely by
+`Looma.MCP.Client.RemoteChatUseCase` using the same local
+`IChatSessionStore` Standalone mode uses (see `config-reference.md`'s
+`ChatHistory` section) — nothing about a conversation's text needs
+Qdrant or Ollama, so there's no reason to make the server stateful for
+it. This also means chat sessions created in McpClient mode live only on
+the machine that created them, same as Standalone mode.

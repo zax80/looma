@@ -191,7 +191,9 @@ public static class Program
         Console.WriteLine("                reverse proxy in front of it.");
         Console.WriteLine($"  Auth:         API key required on every request (env var '{apiKeyEnvVar}'),");
         Console.WriteLine($"                plus Host-header validation ({string.Join(", ", allowedHosts)}).");
-        Console.WriteLine("  Tools:        looma_index, looma_search, looma_answer, looma_count, looma_clear_cache");
+        Console.WriteLine("  Tools:        looma_index, looma_search, looma_answer, looma_count, looma_clear_cache,");
+        Console.WriteLine("                looma_chat, looma_transcribe, looma_caption_image,");
+        Console.WriteLine("                looma_extract_document");
 
         await app.RunAsync();
         return 0;

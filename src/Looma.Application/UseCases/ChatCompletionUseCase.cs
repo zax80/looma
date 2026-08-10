@@ -1,0 +1,249 @@
+using System.Runtime.CompilerServices;
+using System.Text;
+using Looma.Application.Configuration;
+using Looma.Application.Internal;
+using Looma.Core.Abstractions;
+using Looma.Core.Entities;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
+
+namespace Looma.Application.UseCases;
+
+/// <summary>
+/// Retrieval + grounded generation for one chat turn — the same
+/// system-prompt/context-block design as <c>AnswerUseCase</c>, extended
+/// with conversation history and an optional attachment context block.
+///
+/// Attachment handling: <paramref name="attachmentContext"/>-equivalent
+/// material is added to the SAME context block the system prompt grants
+/// permission to answer from — not folded into the question text. That was
+/// tried first (in the pre-split <c>ChatUseCase</c>) and was a real bug:
+/// the grounding rule only permits answering from "the context below," so
+/// a caption smuggled into the question got refused by that same rule
+/// even though the information was technically present in the prompt.
+///
+/// Known limitation (inherited from the pre-split design, unchanged):
+/// retrieval is keyed on the latest message alone, not the full
+/// conversation — a follow-up like "what about the other one?" may
+/// retrieve poorly since the retrieval query itself has no context beyond
+/// that one message. Query reformulation (condensing history + follow-up
+/// into a self-contained search query before embedding) would fix this;
+/// not implemented yet.
+///
+/// Grounding scope: the system prompt originally forbade using prior
+/// conversation turns as a source of facts at all (only for understanding
+/// pronouns/follow-ups) — real-world testing surfaced a bad case for that:
+/// "can you say that in English?" right after Looma had just stated a
+/// quote got refused, because the quote wasn't repeated in THIS turn's
+/// context block, even though Looma had just said it. The rule now also
+/// permits translating/rephrasing/summarizing something Looma already
+/// said earlier in the same conversation — still never permits stating a
+/// NEW fact that wasn't grounded somewhere (this turn's context, or an
+/// earlier turn's own grounded answer).
+///
+/// Sticky attachment memory: reusing Looma's own prior answers (above)
+/// only helps if Looma happened to restate the fact being asked about — a
+/// second real case hit in testing: attaching an image, asking about it,
+/// then asking "who's the author?" as a THIRD turn got a confidently
+/// WRONG answer (retrieval pulled in an unrelated indexed image that
+/// merely scored well on "quote"/"author" similarity, and the grounding
+/// rule let the model answer from it since it was technically "in the
+/// context"). The actual author was in the image's caption, never
+/// restated by Looma, and never available again once that turn ended.
+/// <see cref="BuildStickyAttachmentsBlock"/> fixes this by re-surfacing
+/// every attachment's actual content from earlier in the SAME session
+/// (budget-capped, most recent first) into the context block on every
+/// later turn — not just what Looma chose to say about it.
+/// </summary>
+public sealed class ChatCompletionUseCase : IChatCompletionUseCase
+{
+    private const string SystemPrompt =
+        "You are Looma, a local document assistant having a multi-turn conversation. Answer using " +
+        "the information in the provided context — this may include excerpts retrieved from indexed " +
+        "documents, and/or content from a file (an image's description, or a document's extracted " +
+        "text) the user attached to this or an earlier message in this conversation; all of these " +
+        "are equally valid material to answer from. Summarize, combine, or explain what's there freely, " +
+        "even for a broad or open-ended question, as long as the context actually contains material " +
+        "relevant to it. You may also translate, rephrase, summarize, reformat, or otherwise " +
+        "re-present something you already said earlier in this same conversation, even if it isn't " +
+        "repeated in the context below — reusing your own prior grounded answer that way is fine, " +
+        "since it was already grounded when you said it the first time. What you must never do is " +
+        "state a fact, name, number, or claim that wasn't already present either in the context " +
+        "below or in one of your own earlier answers in this conversation, no matter how confident " +
+        "you are it's correct. If neither the context below nor anything you've already said covers " +
+        "the current question, respond with exactly this sentence and nothing else: \"The provided " +
+        "context does not contain this information.\" Use the prior conversation turns to understand " +
+        "what the user is asking about (pronouns, follow-ups) and, as described above, as material " +
+        "you may reformulate — but never as license to add anything beyond what was already " +
+        "grounded.";
+
+    private const string NoAnswerSentence = "The provided context does not contain this information.";
+
+    /// <summary>
+    /// Total character budget across ALL sticky attachments combined in
+    /// one prompt — a session with several attached files over time could
+    /// otherwise grow the context block without bound. A blunt cap, same
+    /// spirit as MainPage's MaxAttachedDocumentChars on the MAUI side
+    /// (which already truncates a single attachment before it's even sent
+    /// here) — not token-budget-aware, just a simple safeguard.
+    /// </summary>
+    private const int MaxStickyAttachmentChars = 4000;
+
+    private readonly IVectorStore _vectorStore;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IChatClient _chatClient;
+    private readonly RagOptions _ragOptions;
+
+    public ChatCompletionUseCase(
+        IVectorStore vectorStore,
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IChatClient chatClient,
+        IOptions<RagOptions> ragOptions)
+    {
+        _vectorStore = vectorStore;
+        _embeddingGenerator = embeddingGenerator;
+        _chatClient = chatClient;
+        _ragOptions = ragOptions.Value;
+    }
+
+    public async IAsyncEnumerable<AnswerToken> CompleteAsync(
+        IReadOnlyList<ChatMessageEntry> history,
+        string message,
+        string? attachmentContext = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var queryEmbedding = await _embeddingGenerator
+            .GenerateVectorAsync(message, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        var citations = await RagRetrieval
+            .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions.TopK, _ragOptions.MinRelevanceScore, cancellationToken)
+            .ConfigureAwait(false);
+
+        var promptMessages = BuildPrompt(history, message, citations, attachmentContext);
+
+        var chatOptions = new ChatOptions { Temperature = _ragOptions.AnswerTemperature };
+        if (_ragOptions.MaxAnswerTokens is { } maxTokens)
+        {
+            chatOptions.MaxOutputTokens = maxTokens;
+        }
+
+        await foreach (var update in _chatClient.GetStreamingResponseAsync(promptMessages, chatOptions, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (!string.IsNullOrEmpty(update.Text))
+            {
+                yield return new AnswerToken { Text = update.Text, IsFinal = false };
+            }
+        }
+
+        yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };
+    }
+
+    private static List<ChatMessage> BuildPrompt(
+        IReadOnlyList<ChatMessageEntry> priorMessages,
+        string currentMessage,
+        IReadOnlyList<DocumentChunk> citations,
+        string? attachmentContext)
+    {
+        var context = new StringBuilder();
+
+        // Attached content first (an image's caption, or a document's
+        // extracted text — the caller decides which and formats
+        // attachmentContext accordingly, this method doesn't need to
+        // know), clearly labeled, ahead of the retrieved document
+        // excerpts — see the class doc comment for why this lives here
+        // instead of the question text.
+        if (!string.IsNullOrWhiteSpace(attachmentContext))
+        {
+            context.Append("Attached content: ").Append(attachmentContext).Append("\n\n");
+        }
+
+        // See the class doc comment's "Sticky attachment memory" section —
+        // this is what lets a THIRD turn ("who's the author?") draw on
+        // what a file actually said, not just whatever Looma happened to
+        // restate about it on the turn right after it was attached.
+        context.Append(BuildStickyAttachmentsBlock(priorMessages));
+
+        if (citations.Count == 0)
+        {
+            if (context.Length == 0)
+            {
+                context.Append("(no matching context was found in the index)");
+            }
+        }
+        else
+        {
+            for (var i = 0; i < citations.Count; i++)
+            {
+                context.Append('[').Append(i + 1).Append("] (").Append(citations[i].SourceId).Append(")\n")
+                    .Append(citations[i].Content).Append("\n\n");
+            }
+        }
+
+        var messages = new List<ChatMessage> { new(ChatRole.System, SystemPrompt) };
+
+        // Genuine prior turns, verbatim — gives the model conversational
+        // context (pronouns, follow-ups) without re-sending past citations
+        // (Microsoft.Extensions.AI's ChatMessage has nowhere clean to carry
+        // them, and the model doesn't need earlier citations to answer the
+        // current question — only the current context block below).
+        foreach (var entry in priorMessages)
+        {
+            messages.Add(new ChatMessage(
+                entry.Role == ChatMessageRole.User ? ChatRole.User : ChatRole.Assistant,
+                entry.Text));
+        }
+
+        var userMessage = $"Context:\n{context}\n" +
+                           $"Answer using the context above and/or anything you already said " +
+                           $"earlier in this conversation — summarizing, combining, translating, or " +
+                           $"rephrasing either is fine, but don't add any new fact that isn't in one " +
+                           $"of the two. If neither covers the current question, reply with exactly: " +
+                           $"\"{NoAnswerSentence}\"\n\n" +
+                           $"Question: {currentMessage}";
+
+        messages.Add(new ChatMessage(ChatRole.User, userMessage));
+
+        return messages;
+    }
+
+    /// <summary>
+    /// Re-surfaces every earlier User turn's actual attachment content
+    /// (<see cref="ChatMessageEntry.AttachmentContent"/>) from THIS SAME
+    /// session — see the class doc comment's "Sticky attachment memory"
+    /// section for why this exists. Walks <paramref name="priorMessages"/>
+    /// newest-first so a session with several attachments favors keeping
+    /// the most recent ones intact within <see cref="MaxStickyAttachmentChars"/>,
+    /// rather than filling the budget with the oldest and truncating
+    /// exactly the material a follow-up is most likely to be about.
+    /// </summary>
+    private static string BuildStickyAttachmentsBlock(IReadOnlyList<ChatMessageEntry> priorMessages)
+    {
+        var sb = new StringBuilder();
+        var remaining = MaxStickyAttachmentChars;
+
+        for (var i = priorMessages.Count - 1; i >= 0 && remaining > 0; i--)
+        {
+            var entry = priorMessages[i];
+            if (entry.Role != ChatMessageRole.User || string.IsNullOrEmpty(entry.AttachmentContent))
+            {
+                continue;
+            }
+
+            var label = entry.AttachmentLabel is { Length: > 0 } l ? l : "an earlier attachment";
+            var content = entry.AttachmentContent.Length > remaining
+                ? entry.AttachmentContent[..remaining] + "…"
+                : entry.AttachmentContent;
+
+            // Inserted at the front, not appended — walking newest-first
+            // but building the block in chronological (oldest-first)
+            // reading order is easier for the model to follow than
+            // reverse-chronological.
+            sb.Insert(0, $"Previously attached ({label}): {content}\n\n");
+            remaining -= content.Length;
+        }
+
+        return sb.ToString();
+    }
+}

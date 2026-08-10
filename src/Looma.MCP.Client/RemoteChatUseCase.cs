@@ -1,36 +1,32 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
+using Looma.Application.UseCases;
 using Looma.Core.Abstractions;
 using Looma.Core.Entities;
+using ModelContextProtocol.Client;
 
-namespace Looma.Application.UseCases;
+namespace Looma.MCP.Client;
 
 /// <summary>
-/// Local (Standalone-mode) chat orchestration: session persistence via
-/// <see cref="IChatSessionStore"/>, generation via
-/// <see cref="IChatCompletionUseCase"/>. See
-/// <see cref="IChatCompletionUseCase"/>'s doc comment for why generation
-/// is split out this way — the same split is what lets
-/// <c>Looma.MCP.Client.RemoteChatUseCase</c> reuse this exact
-/// session-handling shape while sending generation to a remote
-/// <c>looma_chat</c> MCP tool instead of calling
-/// <see cref="IChatCompletionUseCase"/> in-process.
-///
-/// Deliberately does NOT use <c>IAnswerCache</c>. That cache keys strictly
-/// on question text/embedding — reusing it here would risk serving a
-/// cached answer to what LOOKS like a repeated question but means
-/// something entirely different depending on the conversation it's
-/// embedded in (e.g. "what about the second one?" asked in two different
-/// sessions). Every chat turn is a fresh generation.
+/// Remote (McpClient-mode) implementation of <see cref="IChatUseCase"/>.
+/// Session persistence is entirely local — the same <see cref="IChatSessionStore"/>
+/// Standalone mode uses (e.g. Looma.Infrastructure.LocalStore's
+/// <c>FileChatSessionStore</c>, registered by the composition root
+/// alongside this) — only generation calls the remote <c>looma_chat</c>
+/// tool. See <c>Looma.Application.UseCases.IChatCompletionUseCase</c>'s
+/// doc comment for why sessions never live server-side: they're just
+/// conversation text, nothing in them needs Qdrant/Ollama, so there's no
+/// reason to make the server stateful for them.
 /// </summary>
-public sealed class ChatUseCase : IChatUseCase
+public sealed class RemoteChatUseCase : IChatUseCase
 {
-    private readonly IChatCompletionUseCase _chatCompletionUseCase;
+    private readonly McpClient _client;
     private readonly IChatSessionStore _sessionStore;
 
-    public ChatUseCase(IChatCompletionUseCase chatCompletionUseCase, IChatSessionStore sessionStore)
+    public RemoteChatUseCase(McpClient client, IChatSessionStore sessionStore)
     {
-        _chatCompletionUseCase = chatCompletionUseCase;
+        _client = client;
         _sessionStore = sessionStore;
     }
 
@@ -53,9 +49,8 @@ public sealed class ChatUseCase : IChatUseCase
         string? attachmentLabel = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Fetched before the current user message is appended below — this
-        // is genuine prior history only, not including the message we're
-        // about to send.
+        // Fetched before the current user message is appended below — same
+        // "genuine prior history only" property as the local ChatUseCase.
         var session = await _sessionStore.GetSessionAsync(sessionId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Chat session '{sessionId}' not found.");
 
@@ -70,11 +65,29 @@ public sealed class ChatUseCase : IChatUseCase
         };
         await _sessionStore.AppendMessageAsync(sessionId, userMessage, cancellationToken).ConfigureAwait(false);
 
+        // Citations' embeddings are stripped before crossing the wire —
+        // same rule as every other payload here (see AnswerTool's doc
+        // comment). In practice these are always already null (retrieval
+        // never populates DocumentChunk.Embedding), but strip explicitly
+        // rather than assume it.
+        var wireHistory = session.Messages
+            .Select(entry => entry.Citations is null
+                ? entry
+                : entry with { Citations = entry.Citations.Select(c => c with { Embedding = null }).ToList() })
+            .ToList();
+        var historyJson = JsonSerializer.Serialize(wireHistory, Wire.Options);
+
+        var arguments = new Dictionary<string, object?>
+        {
+            ["historyJson"] = historyJson,
+            ["message"] = message,
+            ["attachmentContext"] = attachmentContext
+        };
+
         var fullAnswer = new StringBuilder();
         IReadOnlyList<DocumentChunk>? finalCitations = null;
 
-        await foreach (var token in _chatCompletionUseCase
-            .CompleteAsync(session.Messages, message, attachmentContext, cancellationToken)
+        await foreach (var token in RemoteStreamHelper.StreamAsync<AnswerToken>(_client, "looma_chat", arguments, cancellationToken)
             .ConfigureAwait(false))
         {
             if (!token.IsFinal)

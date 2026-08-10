@@ -278,6 +278,7 @@ public static class Program
         services.AddLoomaImageEmbeddingGenerator(configuration);
         services.AddLoomaAudioTranscriber(configuration);
         services.AddLoomaApplicationUseCases(configuration);
+        services.AddLoomaLocalChatOrchestration();
     }
 
     /// <summary>
@@ -302,6 +303,7 @@ public static class Program
         markTiming("MCP client connection");
 
         services.AddOptions<RagOptions>().Bind(configuration.GetSection(RagOptions.SectionName));
+        services.AddLoomaLocalChatStore(configuration);
         services.AddLoomaMcpClientUseCases(client);
 
         return client;

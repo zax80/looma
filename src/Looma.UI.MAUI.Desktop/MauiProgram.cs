@@ -73,6 +73,14 @@ public static class MauiProgram
         // voice input (Plugin.Maui.Audio), independent of Deployment:Mode.
         builder.AddAudio();
 
+        // Document export (MainPage.ExportMessageAsync) writes
+        // straight to a fixed folder via plain System.IO — no DI
+        // registration needed. See Directory.Packages.props for why this
+        // isn't a CommunityToolkit.Maui IFileSaver "Save As" dialog: that
+        // was tried and crashed the app outright (native fault inside
+        // Microsoft.UI.Xaml.dll, a real WinAppSDK version mismatch, not a
+        // theoretical risk).
+
         ConfigureLooma(builder.Services);
 
         // Resolved through the DI container so its constructor can pull
@@ -233,6 +241,7 @@ public static class MauiProgram
         services.AddLoomaImageEmbeddingGenerator(configuration);
         services.AddLoomaAudioTranscriber(configuration);
         services.AddLoomaApplicationUseCases(configuration);
+        services.AddLoomaLocalChatOrchestration();
     }
 
     /// <summary>
@@ -251,6 +260,7 @@ public static class MauiProgram
         onStatus("[mcp-client] Connected.");
 
         services.AddOptions<RagOptions>().Bind(configuration.GetSection(RagOptions.SectionName));
+        services.AddLoomaLocalChatStore(configuration);
         services.AddLoomaMcpClientUseCases(client);
 
         return client;
