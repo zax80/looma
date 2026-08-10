@@ -3,7 +3,7 @@
   "Version": "2.0.0",
   "Deployment": {
     "Mode": "McpClient",
-    "McpServerEndpoint": "http://localhost:3001"
+    "McpServerEndpoint": "https://localhost:3001"
   },
   "Models": {
     "BaseModel": {
@@ -56,7 +56,12 @@
       "Mode": "ApiKey",
       "ApiKeyEnvVar": "LOOMA_MCP_API_KEY"
     },
-    "AllowedHosts": ["localhost", "127.0.0.1", "::1"]
+    "AllowedHosts": ["localhost", "127.0.0.1", "::1"],
+    "Tls": {
+      "Enabled": true,
+      "CertificatePath": null,
+      "CertificatePasswordEnvVar": null
+    }
   },
   "RAG": {
     "Sources": [

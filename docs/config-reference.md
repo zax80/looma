@@ -95,7 +95,12 @@ pub/sub, cache), not implemented in any milestone so far.
 "Mcp": {
   "Enabled": false,
   "Auth": { "Mode": "ApiKey", "ApiKeyEnvVar": "LOOMA_MCP_API_KEY" },
-  "AllowedHosts": ["localhost", "127.0.0.1", "::1"]
+  "AllowedHosts": ["localhost", "127.0.0.1", "::1"],
+  "Tls": {
+    "Enabled": false,
+    "CertificatePath": null,
+    "CertificatePasswordEnvVar": null
+  }
 }
 ```
 
@@ -107,6 +112,9 @@ Full detail in `docs/mcp-server.md`. Summary:
 | `Auth.Mode` | Must be `"ApiKey"` — the only mode `Looma.MCP.Server` and `Looma.MCP.Client` support so far. Anything else fails at startup on both sides. |
 | `Auth.ApiKeyEnvVar` | Name of the environment variable holding the shared API key (not the key itself — never put a real key in config.json). Both server and client read the *same* env var name from their own process's environment; the actual key value must match between the two processes. |
 | `AllowedHosts` | Host-header allow-list the server checks on every request (DNS-rebinding defense). Defaults to loopback-only if omitted. |
+| `Tls.Enabled` | Opt-in, `false` by default — plain HTTP on localhost needs no cert. When `true`, the server listens on `https://` instead of `http://` (same default port). |
+| `Tls.CertificatePath` | Path to a PFX/P12 certificate file. Left `null`, Kestrel falls back to the ASP.NET Core HTTPS developer certificate (`dotnet dev-certs https`) — real TLS, just self-signed; any client machine needs `dotnet dev-certs https --trust` run once, or the handshake fails. Set this to a real certificate once this crosses a network boundary that matters. |
+| `Tls.CertificatePasswordEnvVar` | Name of an environment variable holding the PFX's password, if it has one. Same never-put-the-secret-in-config.json convention as `Auth.ApiKeyEnvVar`. Ignored when `CertificatePath` is `null`. |
 
 ## `RAG`
 
