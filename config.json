@@ -73,7 +73,10 @@
     "MinRelevanceScore": 0.55,
     "MaxAnswerTokens": null,
     "AnswerTemperature": 0.1,
-    "EnableQueryReformulation": true
+    "EnableQueryReformulation": true,
+    "EnableAdaptiveThreshold": true,
+    "AdaptiveFloorScore": 0.40,
+    "AdaptiveThresholdMargin": 0.15
   },
   "AnswerCache": {
     "Enabled": true,
