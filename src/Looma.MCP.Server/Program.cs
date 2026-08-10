@@ -1,7 +1,9 @@
+using System.Security.Cryptography.X509Certificates;
 using Looma.Application;
 using Looma.Infrastructure.Llm;
 using Looma.Infrastructure.VectorStore.Qdrant;
 using Looma.MCP.Server.Auth;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,11 +18,22 @@ namespace Looma.MCP.Server;
 ///
 /// Scope for this milestone (per the explicit "Server first" / "HTTP"
 /// choice): stand up Looma.MCP.Server only — Looma.MCP.Client and CLI
-/// MCP-client mode are a follow-up. Transport is plain HTTP, not TLS — that
-/// is a deliberate, flagged deferral (see the startup banner below and
-/// docs/mcp-server.md), not a silent omission of the brief's "TLS always"
-/// posture. What *is* enforced here, on every single request including
-/// tool-listing: API-key auth and Host-header validation.
+/// MCP-client mode are a follow-up. What *is* enforced here, on every
+/// single request including tool-listing: API-key auth and Host-header
+/// validation, regardless of transport.
+///
+/// TLS (<c>Mcp:Tls</c>): opt-in, off by default — plain HTTP on localhost
+/// remains the default experience for the common single-local-user case,
+/// no cert to manage. When <c>Mcp:Tls:Enabled</c> is true and
+/// <c>Mcp:Tls:CertificatePath</c> is unset, Kestrel falls back to the
+/// standard ASP.NET Core HTTPS developer certificate (the same one
+/// `dotnet dev-certs https` manages) for any `https://` endpoint with no
+/// certificate explicitly configured — that's a real, if self-signed, TLS
+/// handshake, not a bypass; the client machine needs to trust that dev
+/// cert (`dotnet dev-certs https --trust`) or the connection fails
+/// correctly rather than silently succeeding unencrypted. A real
+/// CertificatePath (PFX) is the production-appropriate path once this
+/// crosses a network boundary that matters.
 /// </summary>
 public static class Program
 {
@@ -81,6 +94,45 @@ public static class Program
         }
 
         var allowedHosts = configuration.GetSection("Mcp:AllowedHosts").Get<string[]>() ?? HostAllowList.Default;
+
+        // TLS is opt-in (see the class doc comment) — resolved fully before
+        // anything starts, same "fail loud at startup, not on first
+        // request" discipline as the auth checks above. Three shapes:
+        // disabled (default — plain HTTP, nothing to validate); enabled
+        // with no CertificatePath (Kestrel falls back to the ASP.NET Core
+        // HTTPS dev cert, nothing to load here either); enabled with a
+        // CertificatePath (must actually exist and load, or refuse to
+        // start rather than silently falling back to the dev cert).
+        var tlsEnabled = configuration.GetValue<bool>("Mcp:Tls:Enabled");
+        var certificatePath = configuration["Mcp:Tls:CertificatePath"];
+        X509Certificate2? tlsCertificate = null;
+
+        if (tlsEnabled && !string.IsNullOrWhiteSpace(certificatePath))
+        {
+            if (!File.Exists(certificatePath))
+            {
+                Console.Error.WriteLine($"Mcp:Tls:CertificatePath '{certificatePath}' does not exist.");
+                return 1;
+            }
+
+            var certPasswordEnvVar = configuration["Mcp:Tls:CertificatePasswordEnvVar"];
+            var certPassword = string.IsNullOrWhiteSpace(certPasswordEnvVar)
+                ? null
+                : Environment.GetEnvironmentVariable(certPasswordEnvVar);
+
+            try
+            {
+                tlsCertificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certPassword);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"Couldn't load Mcp:Tls:CertificatePath '{certificatePath}' as a PFX ({ex.Message}). " +
+                    "If it's password-protected, set Mcp:Tls:CertificatePasswordEnvVar to the name of an " +
+                    "environment variable holding that password.");
+                return 1;
+            }
+        }
 
         try
         {
@@ -148,11 +200,24 @@ public static class Program
             .WithHttpTransport(options => options.Stateless = true)
             .WithToolsFromAssembly();
 
+        // Only touches the DEFAULT HTTPS certificate Kestrel uses for an
+        // `https://` endpoint that doesn't specify its own — when
+        // tlsCertificate is null (Enabled but no CertificatePath given),
+        // leaving this unset is exactly what makes Kestrel fall back to
+        // the ASP.NET Core HTTPS dev cert on its own, so there's nothing
+        // to configure in that case.
+        if (tlsEnabled && tlsCertificate is not null)
+        {
+            builder.WebHost.ConfigureKestrel(serverOptions =>
+                serverOptions.ConfigureHttpsDefaults(httpsOptions =>
+                    httpsOptions.ServerCertificate = tlsCertificate));
+        }
+
         var app = builder.Build();
 
         if (app.Configuration["urls"] is null && Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is null)
         {
-            app.Urls.Add("http://localhost:3001");
+            app.Urls.Add(tlsEnabled ? "https://localhost:3001" : "http://localhost:3001");
         }
 
         // Gate every request — including tool-listing — behind Host and
@@ -186,9 +251,19 @@ public static class Program
 
         Console.WriteLine("Looma MCP server");
         Console.WriteLine($"  Listening on: {listeningOn}");
-        Console.WriteLine("  Transport:    HTTP, stateless — TLS is deferred to a follow-up milestone.");
-        Console.WriteLine("                Don't expose this beyond localhost without a TLS-terminating");
-        Console.WriteLine("                reverse proxy in front of it.");
+        if (tlsEnabled)
+        {
+            var certSource = tlsCertificate is not null
+                ? $"'{certificatePath}'"
+                : "the ASP.NET Core HTTPS dev cert (run 'dotnet dev-certs https --trust' on any client machine)";
+            Console.WriteLine($"  Transport:    HTTPS, stateless — certificate: {certSource}.");
+        }
+        else
+        {
+            Console.WriteLine("  Transport:    HTTP, stateless — TLS is opt-in (Mcp:Tls:Enabled), off by default.");
+            Console.WriteLine("                Don't expose this beyond localhost without either enabling it or");
+            Console.WriteLine("                putting a TLS-terminating reverse proxy in front of it.");
+        }
         Console.WriteLine($"  Auth:         API key required on every request (env var '{apiKeyEnvVar}'),");
         Console.WriteLine($"                plus Host-header validation ({string.Join(", ", allowedHosts)}).");
         Console.WriteLine("  Tools:        looma_index, looma_search, looma_answer, looma_count, looma_clear_cache,");

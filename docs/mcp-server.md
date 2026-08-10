@@ -11,11 +11,12 @@ interfaces, never which mode is active.
 
 ## Scope of this milestone
 
-- **Transport: plain HTTP, not TLS.** This is a deliberate, flagged
-  deferral, not an oversight — the brief's security posture calls for TLS
-  always, even on private networks. Don't expose this server beyond
-  `localhost` without putting a TLS-terminating reverse proxy in front of
-  it. Self-signed dev cert setup is a separate, well-scoped follow-up task.
+- **Transport: HTTP by default, HTTPS opt-in via `Mcp.Tls.Enabled`.**
+  Plain HTTP remains the default — the common case is one local user on
+  `localhost`, nothing to encrypt against itself. Enabling TLS is a config
+  change, not a code change; see "Enabling TLS" below. Still don't expose
+  this server beyond `localhost` on plain HTTP without either enabling
+  `Mcp.Tls` or putting a TLS-terminating reverse proxy in front of it.
 - **Auth: API key only**, enforced on *every* request — including tool
   listing, not just tool calls. There's no anonymous path.
 - **Host-header validation** against a configurable allow-list, as a
@@ -76,6 +77,51 @@ interfaces, never which mode is active.
 
 3. By default it listens on `http://localhost:3001`. Override with
    `ASPNETCORE_URLS` or `--urls` if needed.
+
+## Enabling TLS
+
+Off by default (see "Scope of this milestone" above). Two ways to turn it
+on, both via `config.json`'s `Mcp.Tls` section — no code changes:
+
+**Self-signed dev cert (quickest — good for a private LAN, not a public
+network):**
+
+```json
+"Tls": { "Enabled": true, "CertificatePath": null, "CertificatePasswordEnvVar": null }
+```
+
+Leaving `CertificatePath` unset makes Kestrel fall back to the standard
+ASP.NET Core HTTPS developer certificate — the same one `dotnet dev-certs
+https` manages. It's a real TLS handshake (traffic is genuinely
+encrypted), just with a certificate no one outside your own machine trusts
+yet. Any machine that will *connect* to the server (including one running
+`Looma.MCP.Client`/`Looma.CLI` in McpClient mode) needs to trust it once:
+
+```powershell
+dotnet dev-certs https --trust
+```
+
+The server then listens on `https://localhost:3001` by default (same port
+unless overridden). Set `Deployment:McpServerEndpoint` to
+`"https://<host>:3001"` on the client side to match.
+
+**A real certificate (production-appropriate, once this crosses a network
+boundary that matters):**
+
+```json
+"Tls": {
+  "Enabled": true,
+  "CertificatePath": "C:\\path\\to\\cert.pfx",
+  "CertificatePasswordEnvVar": "LOOMA_TLS_CERT_PASSWORD"
+}
+```
+
+`CertificatePath` must be a PFX/P12 file. If it's password-protected, set
+the env var named in `CertificatePasswordEnvVar` to that password before
+starting the server (same never-put-secrets-in-config.json convention as
+`Mcp.Auth.ApiKeyEnvVar`). A missing file or a load failure (wrong
+password, corrupt file) fails startup with a clear error rather than
+silently falling back to the dev cert.
 
 ## Connecting a client
 
@@ -158,7 +204,9 @@ connecting unauthenticated.
 
 ## Known gaps (not fixed here)
 
-- No TLS (see above).
+- TLS is opt-in, not enforced — a server started with `Mcp.Tls.Enabled`
+  left `false` (the default) is still plain HTTP, and nothing warns beyond
+  the startup banner. No automatic HTTP→HTTPS redirect either.
 - `looma_search --collection images` with a natural-language query fails
   with a dimension-mismatch error rather than a helpful message — same
   underlying gap `ISearchUseCase`'s doc comment already flags for the CLI's
