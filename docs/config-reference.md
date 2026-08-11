@@ -57,6 +57,7 @@ does. Every `Models.*` entry shares this shape:
 | `ModelPath` | `Local.*` providers only — where the model file lives on disk (relative paths resolve against the working directory). |
 | `DownloadUrl` | `Local.*` providers only — direct HTTP source `LocalModelFileProvisioner` fetches `ModelPath` from on first run if it's missing. Best-effort, not fatal. |
 | `TimeoutSeconds` | HTTP timeout for calls to this model. Defaults to `600` — the OpenAI SDK's own 100s default is sized for a cloud API, not a local model that might still be loading or running on CPU; a real captioning call hit exactly this. |
+| `TextTower` | `ImageEmbeddingModel` only, and optional — enables `looma search --collection images "<text>"` (text→image search) via CLIP's paired text encoder. See `docs/model-setup.md`'s "Text→image search" section for the full shape (`ModelPath`/`DownloadUrl`/`VocabPath`/`VocabDownloadUrl`/`MergesPath`/`MergesDownloadUrl`) — verified against a real model and image; note its cross-modal scoring caveat (scores run lower than `MinRelevanceScore`'s text-vs-text calibration) before relying on the default threshold. |
 
 ## `VectorStore`
 

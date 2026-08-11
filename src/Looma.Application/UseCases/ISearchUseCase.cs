@@ -6,15 +6,17 @@ namespace Looma.Application.UseCases;
 /// <summary>
 /// Embeds a query and streams scored matches from a vector collection.
 ///
-/// Known gap: the query is always embedded with the text embedding model
-/// (<c>Models.EmbeddingModel</c>, nomic-embed-text, 768-dim), regardless of
-/// <c>collection</c>. That's correct for <see cref="VectorCollection.Documents"/>,
-/// but calling this against <see cref="VectorCollection.Images"/> (CLIP,
-/// 512-dim) will send a dimension-mismatched vector and fail loudly at
-/// Qdrant rather than search meaningfully — there's no CLIP *text* encoder
-/// wired up yet for query-side text→image search, only the image encoder
-/// used at ingestion time. Not fixed here; flagging so it fails
-/// understandably rather than looking like a silent bug.
+/// <see cref="VectorCollection.Documents"/> queries always go through the
+/// text embedding model (<c>Models.EmbeddingModel</c>, nomic-embed-text).
+/// <see cref="VectorCollection.Images"/> queries go through CLIP's TEXT
+/// tower instead (<c>Models.ImageEmbeddingModel.TextTower</c>, via
+/// <see cref="Looma.Core.Abstractions.ITextToImageEmbeddingGenerator"/>) —
+/// the paired encoder to the image tower used at ingestion time, landing
+/// in the same 512-dim CLIP space so the comparison is meaningful. If
+/// <c>TextTower</c> isn't configured (it's optional — see
+/// <c>docs/model-setup.md</c>), an images-collection query fails with a
+/// clear "not configured" error rather than a confusing Qdrant
+/// dimension-mismatch — see <c>SearchUseCase</c>.
 /// </summary>
 public interface ISearchUseCase
 {

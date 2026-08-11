@@ -57,6 +57,38 @@ public static class LocalModelFileProvisioner
     }
 
     /// <summary>
+    /// Provisions the three files <see cref="OnnxClipTextEmbeddingGenerator"/>
+    /// needs — the ONNX text tower plus its tokenizer's vocab/merges — if
+    /// <see cref="ClipTextTowerOptions"/> is configured at all. A no-op
+    /// (not an error) if <c>Models.ImageEmbeddingModel.TextTower</c> is
+    /// absent from config.json entirely, since text→image search is
+    /// opt-in, not required. Each of the three files is independently
+    /// best-effort — same "log and continue, don't block everything else"
+    /// discipline as the vision model and Whisper, and consistent with the
+    /// fact that this whole feature is best-effort by design (see
+    /// <see cref="Looma.Core.Abstractions.ITextToImageEmbeddingGenerator"/>).
+    /// </summary>
+    public static async Task EnsureTextToImageSearchModelReadyAsync(
+        IConfiguration configuration,
+        Action<string>? onStatus = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (llmOptions, _) = ServiceCollectionExtensions.BindOptions(configuration);
+        var textTower = llmOptions.ImageEmbeddingModel.TextTower;
+        if (textTower is null)
+        {
+            return;
+        }
+
+        await EnsureFileAsync(textTower.ModelPath, textTower.DownloadUrl, onStatus, cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureFileAsync(textTower.VocabPath, textTower.VocabDownloadUrl, onStatus, cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureFileAsync(textTower.MergesPath, textTower.MergesDownloadUrl, onStatus, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Public (not internal) specifically so the deterministic branches
     /// (already-present, missing-with-no-URL) are directly unit-testable
     /// without needing a real network call — this codebase doesn't use

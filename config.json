@@ -28,7 +28,15 @@
       "Provider": "Local.OnnxClip",
       "ModelPath": "./models/clip-vit-b32.onnx",
       "DownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model.onnx",
-      "Dimensions": 512
+      "Dimensions": 512,
+      "TextTower": {
+        "ModelPath": "./models/clip-vit-b32-text.onnx",
+        "DownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/text_model.onnx",
+        "VocabPath": "./models/clip-vocab.json",
+        "VocabDownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/vocab.json",
+        "MergesPath": "./models/clip-merges.txt",
+        "MergesDownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/merges.txt"
+      }
     },
     "SpeechToTextModel": {
       "Provider": "Local.Whisper",

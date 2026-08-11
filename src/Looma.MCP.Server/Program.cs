@@ -177,6 +177,21 @@ public static class Program
                 "looma_index will fail on audio files until this is resolved; everything else is unaffected.");
         }
 
+        try
+        {
+            // Genuinely optional — a no-op unless Models.ImageEmbeddingModel.TextTower
+            // is configured. See LocalModelFileProvisioner's doc comment.
+            await LocalModelFileProvisioner.EnsureTextToImageSearchModelReadyAsync(
+                configuration, message => Console.WriteLine($"[clip-text] {message}"), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[clip-text] Warning: couldn't auto-provision the CLIP text-tower files ({ex.Message}). " +
+                "looma_search against collection=\"images\" with a text query will fail until this is " +
+                "resolved; everything else is unaffected.");
+        }
+
         builder.Services.AddSingleton(configuration);
 
         try
@@ -187,6 +202,7 @@ public static class Program
             builder.Services.AddLoomaEmbeddingGenerator(configuration);
             builder.Services.AddLoomaImageCaptioner(configuration);
             builder.Services.AddLoomaImageEmbeddingGenerator(configuration);
+            builder.Services.AddLoomaTextToImageEmbeddingGenerator(configuration);
             builder.Services.AddLoomaAudioTranscriber(configuration);
             builder.Services.AddLoomaApplicationUseCases(configuration);
         }
