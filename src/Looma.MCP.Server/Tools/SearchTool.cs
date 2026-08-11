@@ -18,7 +18,7 @@ namespace Looma.MCP.Server.Tools;
 public static class SearchTool
 {
     [McpServerTool(Name = "looma_search", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Searches Looma's vector store for chunks relevant to a query and returns them with relevance scores and source locations. Use collection=\"documents\" (the default) for text, image-caption/OCR, and audio-transcript search. collection=\"images\" searches raw CLIP image embeddings — there's no CLIP text encoder wired up yet, so a natural-language query against \"images\" will fail with a dimension-mismatch error rather than returning results.")]
+    [Description("Searches Looma's vector store for chunks relevant to a query and returns them with relevance scores and source locations. Use collection=\"documents\" (the default) for text, image-caption/OCR, and audio-transcript search. collection=\"images\" searches raw CLIP image embeddings using CLIP's text encoder — only available if Models.ImageEmbeddingModel.TextTower is configured; otherwise fails with a clear \"not configured\" error.")]
     public static async Task<string> Search(
         ISearchUseCase searchUseCase,
         IProgress<ProgressNotificationValue> progress,

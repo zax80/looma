@@ -207,10 +207,13 @@ connecting unauthenticated.
 - TLS is opt-in, not enforced — a server started with `Mcp.Tls.Enabled`
   left `false` (the default) is still plain HTTP, and nothing warns beyond
   the startup banner. No automatic HTTP→HTTPS redirect either.
-- `looma_search --collection images` with a natural-language query fails
-  with a dimension-mismatch error rather than a helpful message — same
-  underlying gap `ISearchUseCase`'s doc comment already flags for the CLI's
-  `search` command.
+- `looma_search --collection images` with a natural-language query now
+  works if `Models.ImageEmbeddingModel.TextTower` is configured (see
+  `docs/model-setup.md`'s "Text→image search" section) — otherwise it
+  fails with a clear "not configured" error rather than Qdrant's confusing
+  dimension-mismatch message. Verified against a real model and image;
+  note the cross-modal scoring caveat in the same doc section before
+  relying on the default `MinRelevanceScore`.
 - No rate limiting or connection-count limits.
 - `Looma.MCP.Client` doesn't reconnect or retry on a dropped connection —
   if the server restarts mid-session, the CLI process needs to be re-run.

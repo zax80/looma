@@ -269,6 +269,29 @@ public static class Program
         }
         markTiming("Whisper model provisioning check");
 
+        try
+        {
+            // Genuinely optional (not just best-effort like CLIP/Whisper
+            // above) — a no-op unless Models.ImageEmbeddingModel.TextTower
+            // is actually configured. See its own doc comment.
+            await LocalModelFileProvisioner.EnsureTextToImageSearchModelReadyAsync(
+                configuration,
+                onStatus: message => Console.WriteLine($"[clip-text] {message}"),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[clip-text] Warning: couldn't auto-provision the CLIP text-tower files ({ex.Message}). " +
+                "'search --collection images' with a text query will fail until this is resolved; " +
+                "everything else is unaffected. See docs/model-setup.md.");
+        }
+        markTiming("CLIP text-tower provisioning check");
+
         services.AddQdrantVectorStore(configuration);
         services.AddQdrantAnswerCache(configuration);
         services.AddLoomaLocalChatStore(configuration);
@@ -276,6 +299,7 @@ public static class Program
         services.AddLoomaEmbeddingGenerator(configuration);
         services.AddLoomaImageCaptioner(configuration);
         services.AddLoomaImageEmbeddingGenerator(configuration);
+        services.AddLoomaTextToImageEmbeddingGenerator(configuration);
         services.AddLoomaAudioTranscriber(configuration);
         services.AddLoomaApplicationUseCases(configuration);
         services.AddLoomaLocalChatOrchestration();

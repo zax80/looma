@@ -59,6 +59,17 @@
     <PackageVersion Include="SkiaSharp" Version="4.151.0" />
 
     <!--
+      Text->image search (Infrastructure.Llm only): CLIP's text tower needs
+      its own byte-pair-encoding tokenizer (vocab.json + merges.txt, the
+      same file pair OpenAI/HF CLIP exports ship) before the ONNX text
+      model can run. Microsoft.ML.Tokenizers' BpeTokenizer is the
+      Microsoft-maintained implementation of exactly this format, used
+      instead of hand-rolling BPE merge logic — a correctness-critical,
+      easy-to-get-subtly-wrong algorithm not worth reimplementing by hand.
+    -->
+    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+
+    <!--
       Audio ingestion (Infrastructure.Llm only): Whisper.net is a .NET
       binding for whisper.cpp (MIT-licensed, matches the brief's stated
       choice). Whisper.net.Runtime is the CPU-inference native runtime

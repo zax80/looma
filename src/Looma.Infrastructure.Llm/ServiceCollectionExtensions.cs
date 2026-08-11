@@ -106,6 +106,35 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Registers <see cref="ITextToImageEmbeddingGenerator"/> against
+    /// <c>Models.ImageEmbeddingModel.TextTower</c> — a no-op (nothing
+    /// registered) if that section is absent from config.json, same
+    /// "entirely optional, not fatal" stance as
+    /// <see cref="LocalModelFileProvisioner.EnsureTextToImageSearchModelReadyAsync"/>.
+    /// Callers that need this (only <c>SearchUseCase</c> so far) take it as
+    /// an optional constructor dependency and degrade gracefully — see its
+    /// doc comment — rather than requiring every deployment to configure
+    /// text→image search just to use anything else.
+    /// </summary>
+    public static IServiceCollection AddLoomaTextToImageEmbeddingGenerator(this IServiceCollection services, IConfiguration configuration)
+    {
+        var (llmOptions, _) = BindOptions(configuration);
+        var textTower = llmOptions.ImageEmbeddingModel.TextTower;
+        if (textTower is null
+            || string.IsNullOrWhiteSpace(textTower.ModelPath)
+            || string.IsNullOrWhiteSpace(textTower.VocabPath)
+            || string.IsNullOrWhiteSpace(textTower.MergesPath))
+        {
+            return services;
+        }
+
+        services.AddSingleton<ITextToImageEmbeddingGenerator>(_ =>
+            new OnnxClipTextEmbeddingGenerator(textTower.ModelPath, textTower.VocabPath, textTower.MergesPath));
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers <see cref="IAudioTranscriber"/> (Whisper) against
     /// <c>Models.SpeechToTextModel</c>. No endpoint/locality check here for
     /// the same reason as <see cref="AddLoomaImageEmbeddingGenerator"/> —

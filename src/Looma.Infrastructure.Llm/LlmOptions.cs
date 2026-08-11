@@ -65,4 +65,36 @@ public sealed class ModelEndpointOptions
     /// hardware is fast and you'd rather a hang fail quickly than wait.
     /// </summary>
     public int TimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Only meaningful on <see cref="LlmOptions.ImageEmbeddingModel"/>, and
+    /// only if text→image search is wanted — everything about it is
+    /// optional and best-effort, same as CLIP/Whisper provisioning
+    /// generally (see <c>LocalModelFileProvisioner</c>'s doc comment): a
+    /// missing/unset <see cref="ClipTextTowerOptions"/> just means
+    /// <c>looma search --collection images "&lt;text&gt;"</c> isn't
+    /// available, nothing else is affected.
+    /// </summary>
+    public ClipTextTowerOptions? TextTower { get; set; }
+}
+
+/// <summary>
+/// CLIP's paired text encoder (see
+/// <see cref="Looma.Core.Abstractions.ITextToImageEmbeddingGenerator"/>) —
+/// a second ONNX graph plus its own byte-pair-encoding tokenizer files,
+/// downloaded from the SAME Xenova/clip-vit-base-patch32 repo as the
+/// vision tower (<see cref="ModelEndpointOptions.ModelPath"/> /
+/// <see cref="ModelEndpointOptions.DownloadUrl"/>) so the two embedding
+/// spaces actually line up. All three files are provisioned the same
+/// best-effort way as the vision model — see
+/// <c>LocalModelFileProvisioner.EnsureTextToImageSearchModelReadyAsync</c>.
+/// </summary>
+public sealed class ClipTextTowerOptions
+{
+    public string? ModelPath { get; set; }
+    public string? DownloadUrl { get; set; }
+    public string? VocabPath { get; set; }
+    public string? VocabDownloadUrl { get; set; }
+    public string? MergesPath { get; set; }
+    public string? MergesDownloadUrl { get; set; }
 }

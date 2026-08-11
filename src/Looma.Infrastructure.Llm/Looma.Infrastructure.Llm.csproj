@@ -30,6 +30,9 @@
          SkiaSharp over ImageSharp. -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
     <PackageReference Include="SkiaSharp" />
+
+    <!-- CLIP text tower (text->image search) — see Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
   </ItemGroup>
 
   <ItemGroup>

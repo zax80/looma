@@ -232,6 +232,26 @@ public static class MauiProgram
                 "Audio indexing will fail until this is resolved; everything else is unaffected.");
         }
 
+        try
+        {
+            // Genuinely optional — a no-op unless Models.ImageEmbeddingModel.TextTower
+            // is configured. See LocalModelFileProvisioner's doc comment.
+            await LocalModelFileProvisioner.EnsureTextToImageSearchModelReadyAsync(
+                configuration,
+                onStatus: message => onStatus($"[clip-text] {message}"),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            onStatus(
+                $"[clip-text] Warning: couldn't auto-provision the CLIP text-tower files ({ex.Message}). " +
+                "Text-to-image search will be unavailable until this is resolved; everything else is unaffected.");
+        }
+
         services.AddQdrantVectorStore(configuration);
         services.AddQdrantAnswerCache(configuration);
         services.AddLoomaLocalChatStore(configuration);
@@ -239,6 +259,7 @@ public static class MauiProgram
         services.AddLoomaEmbeddingGenerator(configuration);
         services.AddLoomaImageCaptioner(configuration);
         services.AddLoomaImageEmbeddingGenerator(configuration);
+        services.AddLoomaTextToImageEmbeddingGenerator(configuration);
         services.AddLoomaAudioTranscriber(configuration);
         services.AddLoomaApplicationUseCases(configuration);
         services.AddLoomaLocalChatOrchestration();

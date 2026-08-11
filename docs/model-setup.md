@@ -16,6 +16,10 @@ the normal case:
   if the file doesn't already exist. Not fatal on failure — only the image
   half of ingestion needs it. `OnnxClipImageEmbeddingGenerator` fails loudly
   and specifically if a run that actually needs the file finds it missing.
+- **CLIP text tower (text→image search)** — `Models.ImageEmbeddingModel.TextTower`
+  (three files: an ONNX text encoder plus its tokenizer's vocab/merges) is
+  entirely optional, downloaded the same way if configured at all. See
+  "Text→image search" below.
 - **Whisper (audio transcription)** — `Models.SpeechToTextModel`
   (`./models/whisper-base.bin` by default) is downloaded the same way, from
   `Models.SpeechToTextModel.DownloadUrl`. Not fatal on failure either — only
@@ -61,8 +65,50 @@ and normalizes with CLIP's own mean/std
 (`[0.48145466, 0.4578275, 0.40821073]` / `[0.26862954, 0.26130258, 0.27577711]`)
 — the standard OpenAI/open_clip recipe, not ImageNet's. A vision-only
 encoder (not the full CLIP model with the text tower) is all that's needed
-for image ingestion; text→image query-side search is a later milestone and
-would need the paired text encoder too.
+for image ingestion; text→image query-side search needs the paired text
+encoder too — see the next section.
+
+## Text→image search
+
+Optional — `looma search --collection images "<text query>"` (or the
+`looma_search` MCP tool with `collection="images"`) needs CLIP's paired
+TEXT encoder, not just the vision encoder image ingestion already uses.
+Nothing downloads this by default; add `Models.ImageEmbeddingModel.TextTower`
+to config.json to opt in:
+
+```json
+"ImageEmbeddingModel": {
+  "Provider": "Local.OnnxClip",
+  "ModelPath": "./models/clip-vit-b32.onnx",
+  "DownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model.onnx",
+  "Dimensions": 512,
+  "TextTower": {
+    "ModelPath": "./models/clip-vit-b32-text.onnx",
+    "DownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/text_model.onnx",
+    "VocabPath": "./models/clip-vocab.json",
+    "VocabDownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/vocab.json",
+    "MergesPath": "./models/clip-merges.txt",
+    "MergesDownloadUrl": "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/merges.txt"
+  }
+}
+```
+
+All three files (the text-encoder ONNX graph plus the tokenizer's
+vocab.json/merges.txt) auto-download from the same Xenova/clip-vit-base-patch32
+repo the vision model already comes from — about 250 MB total, mostly the
+ONNX graph. Each is independently best-effort at startup, same as CLIP/
+Whisper: a failed download logs a warning and only blocks
+`--collection images` text search, nothing else. Without `TextTower`
+configured, that same command fails with a clear "not configured" error
+instead of Qdrant's confusing dimension-mismatch message.
+
+Verified against a real model file and a real indexed image — see
+`OnnxClipTextEmbeddingGenerator`'s doc comment for the specific query/score
+that confirmed it. One tuning caveat found during that verification:
+cross-modal (text-vs-image) CLIP scores run meaningfully lower than
+`RAG.MinRelevanceScore`'s text-vs-text calibration — pass an explicit,
+lower `--min-score` when using `search --collection images`, don't rely on
+the configured default.
 
 ## Manual fallback — Whisper
 
@@ -99,10 +145,18 @@ decoding doesn't have this dependency and should work everywhere.
 
 ## Not yet verified end-to-end
 
-CLIP was verified against a real model file and real image in this session —
-captioning, chunking, embedding, retrieval, and grounded answers all
-confirmed working. Whisper/audio has been built and unit-tested (chunking
-logic, format sniffing, the deterministic provisioning branches) but not
-yet run against a real GGML model and real audio file — that first real
-`looma index` run against a `.wav`/`.mp3` file is the actual verification
-step, same as CLIP got.
+CLIP (vision tower) was verified against a real model file and real image
+in this session — captioning, chunking, embedding, retrieval, and grounded
+answers all confirmed working. Whisper/audio has been built and
+unit-tested (chunking logic, format sniffing, the deterministic
+provisioning branches) but not yet run against a real GGML model and real
+audio file — that first real `looma index` run against a `.wav`/`.mp3`
+file is the actual verification step, same as CLIP got.
+
+CLIP's TEXT tower (text→image search, see above) has now also been
+verified against a real model file and a real indexed image — see
+`OnnxClipTextEmbeddingGenerator`'s doc comment for the specific query/score
+that confirmed it. Note the cross-modal scoring caveat there: CLIP
+text-vs-image scores run lower than `RAG.MinRelevanceScore` was calibrated
+for (text-vs-text), so pass an explicit `--min-score` well below 0.55 when
+using `search --collection images`.
