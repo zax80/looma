@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Looma.Application;
 using Looma.Application.DocumentGeneration;
 using Looma.Application.Extraction;
 using Looma.Application.UseCases;
@@ -283,8 +284,22 @@ public partial class MainPage : ContentPage
             // Offer a document export if the question sounded like a
             // generation request ("write this up as a report", etc.) — see
             // DocumentGenerationIntentDetector's doc comment. Only offered
-            // when there's an actual export use case to hand the click to.
-            if (_documentExportUseCase is not null)
+            // when there's an actual export use case to hand the click to,
+            // AND the answer that actually came back is real content, not
+            // Looma's own no-answer refusal — a real case that surfaced
+            // this: "Can you create a pdf document, about the coffee?" (no
+            // coffee content indexed) correctly got refused with
+            // GroundedAnswer.NoAnswerSentence, but the export button still
+            // showed up and would have "exported" that refusal sentence
+            // itself as if it were a real document. Comparing the
+            // STREAMED answer's own text, not re-deriving anything from
+            // the question, is what actually distinguishes those two
+            // cases — the intent detector only ever looks at the
+            // question, which is identical in both.
+            var finalAnswerText = answerSoFar.ToString().Trim();
+            var wasRefusal = string.Equals(finalAnswerText, GroundedAnswer.NoAnswerSentence, StringComparison.Ordinal);
+
+            if (_documentExportUseCase is not null && !wasRefusal)
             {
                 var intent = DocumentGenerationIntentDetector.Detect(typedText);
                 if (intent is not null)

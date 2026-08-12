@@ -84,10 +84,20 @@ namespace Looma.Application.UseCases;
 /// above, treated "write it in a pdf" as an ordinary question it
 /// couldn't answer rather than a request to restate already-grounded
 /// material. <see cref="BuildPrompt"/> now runs the same detector over
-/// the current message and, when it matches, appends an explicit note
-/// telling the model this is an export request — present the material,
-/// don't refuse — since the actual file generation happens separately,
-/// client-side, once the model's answer text exists.
+/// the current message and, when it matches, swaps in a dedicated
+/// export-focused instruction sentence instead of the ordinary
+/// answer-or-refuse one.
+///
+/// That swap (a whole separate instruction, not an appended note) is
+/// itself the fix for a second real case: appending "...but don't refuse"
+/// right after "...if not covered, refuse", in the same sentence, still
+/// wasn't enough — "Can you create a pdf document, about the coffee?"
+/// got refused even with a genuinely relevant coffee-brewing.txt chunk
+/// retrieved into the context, apparently because the model checked the
+/// literal question ("can you create a document") against the context
+/// rather than the underlying topic. Giving the model exactly one
+/// instruction for this case, not two competing ones to reconcile itself,
+/// is what actually fixed it.
 /// </summary>
 public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 {
@@ -110,8 +120,6 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         "what the user is asking about (pronouns, follow-ups) and, as described above, as material " +
         "you may reformulate — but never as license to add anything beyond what was already " +
         "grounded.";
-
-    private const string NoAnswerSentence = "The provided context does not contain this information.";
 
     /// <summary>
     /// Total character budget across ALL sticky attachments combined in
@@ -327,21 +335,36 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         // "Export as..." button, reused here so the model itself knows a
         // message like "write it in a pdf" is asking it to restate
         // already-grounded material for export, not asking a new question
-        // it can't answer.
-        var exportNote = DocumentGenerationIntentDetector.Detect(currentMessage) is not null
-            ? " Note: this message looks like a request to prepare the relevant material for " +
-              "export as a document — if it's covered by the context above or something you " +
-              "already said earlier in this conversation, present it clearly and completely " +
-              "instead of refusing; the export itself happens separately once you've answered."
-            : string.Empty;
+        // it can't answer. This is a SEPARATE instruction sentence, not an
+        // appended note on the ordinary one (an earlier version appended a
+        // "don't refuse" note right after "if not covered, refuse" in the
+        // very same sentence — a real, reproduced failure: a small local
+        // model given both directives in one breath still refused a
+        // request like "Can you create a pdf document, about the coffee?"
+        // even with a genuinely relevant coffee-brewing.txt chunk sitting
+        // right there in the context, apparently reading the literal
+        // question "can you create a document" — not the underlying topic
+        // — as the thing to check against the context. One unambiguous
+        // instruction per case removes that conflict instead of trying to
+        // out-word it.
+        var isExportRequest = DocumentGenerationIntentDetector.Detect(currentMessage) is not null;
+        var instructionText = isExportRequest
+            ? "This message is a request to prepare the relevant information from the context " +
+              "above (and/or anything you already said earlier in this conversation) for export " +
+              "as a document. Write that information out clearly and completely, the same as you " +
+              "would to answer a plain question about the same underlying topic — don't refuse " +
+              "just because the message is phrased as a request to create/export/write up a " +
+              "document rather than as a question, and don't comment on the export/file/PDF " +
+              "mechanics themselves (that happens separately, client-side, after you answer). " +
+              $"Only reply with exactly \"{GroundedAnswer.NoAnswerSentence}\" if the context above " +
+              "and everything you've already said truly contain nothing relevant to the " +
+              "underlying topic at all."
+            : "Answer using the context above and/or anything you already said earlier in this " +
+              "conversation — summarizing, combining, translating, or rephrasing either is fine, " +
+              "but don't add any new fact that isn't in one of the two. If neither covers the " +
+              $"current question, reply with exactly: \"{GroundedAnswer.NoAnswerSentence}\"";
 
-        var userMessage = $"Context:\n{context}\n" +
-                           $"Answer using the context above and/or anything you already said " +
-                           $"earlier in this conversation — summarizing, combining, translating, or " +
-                           $"rephrasing either is fine, but don't add any new fact that isn't in one " +
-                           $"of the two. If neither covers the current question, reply with exactly: " +
-                           $"\"{NoAnswerSentence}\"{exportNote}\n\n" +
-                           $"Question: {currentMessage}";
+        var userMessage = $"Context:\n{context}\n{instructionText}\n\nQuestion: {currentMessage}";
 
         messages.Add(new ChatMessage(ChatRole.User, userMessage));
 

@@ -5,5 +5,6 @@ public enum DocumentExportFormat
 {
     Word,
     Markdown,
-    PlainText
+    PlainText,
+    Pdf
 }

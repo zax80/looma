@@ -153,8 +153,8 @@ Claude Desktop's custom MCP server config — before relying on this.
 | `looma_caption_image` | `IImageCaptionUseCase` | Single call, no streaming. Image travels as base64 (`imageBase64`); returns `ImageCaptionResult` as JSON. |
 | `looma_extract_document` | `IDocumentExtractionUseCase` | Single call, no streaming. Document travels as base64 (`documentBase64`) plus `fileName` (for its extension); returns extracted plain text. |
 
-Document *export* (turning a chat answer into a real .docx/.md/.txt file,
-`IDocumentExportUseCase`) has no MCP tool at all, deliberately — it's pure
+Document *export* (turning a chat answer into a real .docx/.md/.txt/.pdf
+file, `IDocumentExportUseCase`) has no MCP tool at all, deliberately — it's pure
 local text formatting of an answer the client already has in hand, no
 Qdrant/Ollama involved, so `Looma.MCP.Client` registers the exact same
 `DocumentExportUseCase` Standalone mode uses rather than calling out to
@@ -226,9 +226,6 @@ connecting unauthenticated.
   `looma_caption_image`/`looma_extract_document` above) rather than a
   proper binary/streaming transport — fine for a single short voice clip,
   image, or document, but not something to build a bulk upload path on.
-- PDF export isn't implemented — `IDocumentExportUseCase` only produces
-  .docx/.md/.txt. If a chat message asks for a PDF, the export button
-  falls back to .docx and says so (see `DocumentGenerationIntent.PdfRequestedButUnsupported`).
 - The "offer a document export" trigger (`DocumentGenerationIntentDetector`)
   is plain keyword matching on the user's message, not real intent
   understanding — see its own doc comment for the specific heuristic and

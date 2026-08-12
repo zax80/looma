@@ -10,6 +10,7 @@ public static class DocumentExportFormatExtensions
         DocumentExportFormat.Word => ".docx",
         DocumentExportFormat.Markdown => ".md",
         DocumentExportFormat.PlainText => ".txt",
+        DocumentExportFormat.Pdf => ".pdf",
         _ => throw new NotSupportedException($"Unsupported export format: {format}")
     };
 }

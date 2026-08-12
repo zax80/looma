@@ -47,8 +47,6 @@ public sealed class AnswerUseCase : IAnswerUseCase
         "nothing relevant to the question at all, respond with exactly this sentence and nothing " +
         "else: \"The provided context does not contain this information.\"";
 
-    private const string NoAnswerSentence = "The provided context does not contain this information.";
-
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IChatClient _chatClient;
@@ -218,7 +216,7 @@ public sealed class AnswerUseCase : IAnswerUseCase
                            $"Answer from the context above — summarizing or combining what's there " +
                            $"is fine, but don't add anything that isn't actually in it. If none of " +
                            $"it is relevant to the question, reply with exactly: " +
-                           $"\"{NoAnswerSentence}\"\n\n" +
+                           $"\"{GroundedAnswer.NoAnswerSentence}\"\n\n" +
                            $"Question: {question}";
 
         return
