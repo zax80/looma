@@ -1024,8 +1024,16 @@ public partial class MainPage : ContentPage
                 sb.Append("; ");
             }
 
-            sb.Append('[').Append(i + 1).Append("] ").Append(citations[i].SourceId)
-                .Append(" (lines ").Append(citations[i].Metadata.StartLine).Append('-').Append(citations[i].Metadata.EndLine).Append(')');
+            sb.Append('[').Append(i + 1).Append("] ").Append(citations[i].SourceId);
+
+            // A web result's SourceId is already the URL — nothing
+            // meaningful to append (StartLine/EndLine are null for
+            // MediaType.Web; see WebSearchFallback). Every other media
+            // type keeps the existing line-range display unchanged.
+            if (citations[i].Metadata.MediaType != MediaType.Web)
+            {
+                sb.Append(" (lines ").Append(citations[i].Metadata.StartLine).Append('-').Append(citations[i].Metadata.EndLine).Append(')');
+            }
         }
 
         return sb.ToString();

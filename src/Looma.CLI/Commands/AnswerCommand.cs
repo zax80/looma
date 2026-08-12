@@ -1,4 +1,5 @@
 using Looma.Application.UseCases;
+using Looma.Core.Entities;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Looma.CLI.Commands;
@@ -35,7 +36,14 @@ public static class AnswerCommand
                 for (var i = 0; i < token.Citations.Count; i++)
                 {
                     var citation = token.Citations[i];
-                    Console.WriteLine($"  [{i + 1}] {citation.SourceId} (lines {citation.Metadata.StartLine}-{citation.Metadata.EndLine})");
+
+                    // A web result's SourceId is already the URL — no line
+                    // range to append (StartLine/EndLine are null for
+                    // MediaType.Web; see WebSearchFallback).
+                    var location = citation.Metadata.MediaType == MediaType.Web
+                        ? string.Empty
+                        : $" (lines {citation.Metadata.StartLine}-{citation.Metadata.EndLine})";
+                    Console.WriteLine($"  [{i + 1}] {citation.SourceId}{location}");
                 }
             }
         }

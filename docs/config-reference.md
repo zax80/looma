@@ -90,6 +90,50 @@ decision, not something to add quietly.
 reserved for the brief's "Scaled / multi-user" deployment shape (queue,
 pub/sub, cache), not implemented in any milestone so far.
 
+## `WebSearch`
+
+```json
+"WebSearch": {
+  "Endpoint": "http://localhost:8080",
+  "TimeoutSeconds": 10
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `Endpoint` | A self-hosted [SearXNG](https://docs.searxng.org/) instance's base URL. **Its `json` output format must be enabled** — SearXNG only serves HTML by default; add `search: { formats: [html, json] }` to its `settings.yml` and restart, or `SearXngWebSearchProvider` gets HTML back and treats it as "no results" rather than failing loudly (see below). |
+| `TimeoutSeconds` | HTTP timeout for the search call. |
+
+**Connection details only** — whether this is ever actually used is
+`RAG.EnableWebSearch` below, a separate toggle. This section is always
+bound and `IWebSearchProvider` is always registered regardless of that
+flag, or of whether a SearXNG instance is even running: `SearXngWebSearchProvider`
+fails closed to an empty result list on any connectivity or parsing
+failure rather than throwing (unlike `VectorStore`/Qdrant, which fails
+loudly — see `docs/mcp-server.md`'s "Qdrant unreachable" section). That
+asymmetry is deliberate: Qdrant is the primary retrieval path, web search
+is an opt-in fallback for when it already came up empty, so a broken or
+unconfigured search backend should degrade to "no web results either,"
+not break the turn.
+
+Quick local setup:
+
+```bash
+docker run -d -p 8080:8080 \
+  -v ./searxng-settings.yml:/etc/searxng/settings.yml:ro \
+  -e SEARXNG_BASE_URL=http://localhost:8080 \
+  searxng/searxng
+```
+
+where `searxng-settings.yml` includes at least:
+
+```yaml
+search:
+  formats:
+    - html
+    - json
+```
+
 ## `Mcp`
 
 ```json
@@ -131,7 +175,9 @@ Full detail in `docs/mcp-server.md`. Summary:
   "EnableQueryReformulation": true,
   "EnableAdaptiveThreshold": true,
   "AdaptiveFloorScore": 0.40,
-  "AdaptiveThresholdMargin": 0.15
+  "AdaptiveThresholdMargin": 0.15,
+  "EnableWebSearch": false,
+  "WebSearchMaxResults": 3
 }
 ```
 
@@ -155,6 +201,8 @@ indexed — it won't.
 | `AdaptiveFloorScore` | The floor `EnableAdaptiveThreshold` searches against instead of `MinRelevanceScore` — deliberately lower (but still above the observed 0.44-0.50 false-positive band, see `MinRelevanceScore` above) so a hard query's true positive is still fetched as a candidate; `AdaptiveThresholdMargin` then decides whether it's actually kept. Ignored when `EnableAdaptiveThreshold` is `false`. |
 | `AdaptiveThresholdMargin` | How far below the best-scoring candidate a runner-up can fall and still be kept, when `EnableAdaptiveThreshold` is on. Reasoned starting point (0.15), not measured-optimal — same "validate with `looma search` before tuning further" caveat as `MinRelevanceScore`. |
 | `AnswerTemperature` | Chat sampling temperature for `answer`. Low (`0.1`) by default, deliberately — grounded Q&A should stick to the provided context, not free-associate. |
+| `EnableWebSearch` | Both `answer` and chat. `false` by default (opt-in — depends on `WebSearch.Endpoint` actually being a running SearXNG instance, see above). When `true`, a query that finds zero citations in the local `documents` collection falls back to a web search instead of answering "the provided context does not contain this information" outright — deterministic (triggered by zero local citations, not a model decision), see `WebSearchFallback`'s doc comment. Web results are cited the same way as document chunks, just with a URL instead of a line range. |
+| `WebSearchMaxResults` | How many web results to fold into the context when the fallback above triggers. Deliberately smaller than `TopK` — this fills a gap in the local index, not competing with it on breadth. |
 
 ## `AnswerCache`
 

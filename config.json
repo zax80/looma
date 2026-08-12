@@ -58,6 +58,10 @@
     "Endpoint": "localhost:6379",
     "Password": null
   },
+  "WebSearch": {
+    "Endpoint": "http://localhost:8080",
+    "TimeoutSeconds": 10
+  },
   "Mcp": {
     "Enabled": false,
     "Auth": {
@@ -89,7 +93,9 @@
     "EnableQueryReformulation": true,
     "EnableAdaptiveThreshold": true,
     "AdaptiveFloorScore": 0.40,
-    "AdaptiveThresholdMargin": 0.15
+    "AdaptiveThresholdMargin": 0.15,
+    "EnableWebSearch": false,
+    "WebSearchMaxResults": 3
   },
   "AnswerCache": {
     "Enabled": true,
