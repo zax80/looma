@@ -151,4 +151,32 @@ public sealed class RagOptions
     /// occasionally poor multi-turn retrieval on your hardware.
     /// </summary>
     public bool EnableQueryReformulation { get; set; } = true;
+
+    /// <summary>
+    /// Whether a query that finds nothing in the local <c>documents</c>
+    /// collection falls back to a web search (see
+    /// <c>WebSearchFallback</c>/<see cref="Looma.Core.Abstractions.IWebSearchProvider"/>)
+    /// instead of answering "the provided context does not contain this
+    /// information" outright. Off by default, its own separate toggle from
+    /// every other RAG behavior here — unlike query reformulation or
+    /// adaptive thresholding, this one depends on an external service (a
+    /// self-hosted SearXNG instance, see docs/config-reference.md's
+    /// WebSearch section) the user has to actually set up first, so
+    /// defaulting it on would silently start making network calls for
+    /// installs that never asked for it. The trigger itself is
+    /// deterministic (zero local citations, not a model decision) — same
+    /// "don't make the model decide something code can decide instead"
+    /// reasoning as <see cref="Looma.Application.DocumentGeneration.DocumentGenerationIntentDetector"/>.
+    /// </summary>
+    public bool EnableWebSearch { get; set; } = false;
+
+    /// <summary>
+    /// How many web results to fold into the context when
+    /// <see cref="EnableWebSearch"/> triggers. Deliberately smaller than
+    /// <see cref="TopK"/> — a web fallback is meant to cover a gap in the
+    /// local index, not compete with it on breadth, and each result adds a
+    /// full page's title+snippet to the prompt with none of local
+    /// retrieval's relevance-score filtering to thin it out.
+    /// </summary>
+    public int WebSearchMaxResults { get; set; } = 3;
 }

@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Looma.Infrastructure.VectorStore.Qdrant\Looma.Infrastructure.VectorStore.Qdrant.csproj" />
     <ProjectReference Include="..\Looma.Infrastructure.Llm\Looma.Infrastructure.Llm.csproj" />
     <ProjectReference Include="..\Looma.Infrastructure.LocalStore\Looma.Infrastructure.LocalStore.csproj" />
+    <ProjectReference Include="..\Looma.Infrastructure.WebSearch.SearXng\Looma.Infrastructure.WebSearch.SearXng.csproj" />
     <ProjectReference Include="..\Looma.MCP.Client\Looma.MCP.Client.csproj" />
   </ItemGroup>
 

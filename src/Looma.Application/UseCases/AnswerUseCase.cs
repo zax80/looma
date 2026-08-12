@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Looma.Application.Configuration;
+using Looma.Application.Internal;
 using Looma.Core.Abstractions;
 using Looma.Core.Entities;
 using Microsoft.Extensions.AI;
@@ -51,6 +52,7 @@ public sealed class AnswerUseCase : IAnswerUseCase
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IChatClient _chatClient;
     private readonly IAnswerCache _answerCache;
+    private readonly IWebSearchProvider _webSearchProvider;
     private readonly RagOptions _ragOptions;
 
     public AnswerUseCase(
@@ -58,12 +60,14 @@ public sealed class AnswerUseCase : IAnswerUseCase
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IChatClient chatClient,
         IAnswerCache answerCache,
+        IWebSearchProvider webSearchProvider,
         IOptions<RagOptions> ragOptions)
     {
         _vectorStore = vectorStore;
         _embeddingGenerator = embeddingGenerator;
         _chatClient = chatClient;
         _answerCache = answerCache;
+        _webSearchProvider = webSearchProvider;
         _ragOptions = ragOptions.Value;
     }
 
@@ -130,6 +134,16 @@ public sealed class AnswerUseCase : IAnswerUseCase
             });
         }
         timer.Mark("retrieve context chunks");
+
+        // See WebSearchFallback's doc comment — a no-op unless local
+        // retrieval above found nothing AND RagOptions.EnableWebSearch is
+        // on. Uses the literal question, same as retrieval above (no query
+        // reformulation exists at this layer — that's chat-only, see
+        // ChatCompletionUseCase).
+        citations = await WebSearchFallback
+            .AugmentIfEmptyAsync(citations, question, _ragOptions, _webSearchProvider, cancellationToken)
+            .ConfigureAwait(false);
+        timer.Mark("web search fallback");
 
         var messages = BuildPrompt(question, citations);
 

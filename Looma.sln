@@ -32,6 +32,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.LocalS
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.LocalStore.Tests", "tests\Looma.Infrastructure.LocalStore.Tests\Looma.Infrastructure.LocalStore.Tests.csproj", "{8ACB6D9D-DEAF-5061-BF8D-9E0F1A2B3C4D}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.WebSearch.SearXng", "src\Looma.Infrastructure.WebSearch.SearXng\Looma.Infrastructure.WebSearch.SearXng.csproj", "{9F1A2B3C-4D5E-4F60-8A1B-2C3D4E5F6A7B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Looma.Infrastructure.WebSearch.SearXng.Tests", "tests\Looma.Infrastructure.WebSearch.SearXng.Tests\Looma.Infrastructure.WebSearch.SearXng.Tests.csproj", "{AF2B3C4D-5E6F-4A71-9B2C-3D4E5F6A7B8C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -98,6 +102,14 @@ Global
 		{8ACB6D9D-DEAF-5061-BF8D-9E0F1A2B3C4D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8ACB6D9D-DEAF-5061-BF8D-9E0F1A2B3C4D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8ACB6D9D-DEAF-5061-BF8D-9E0F1A2B3C4D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F1A2B3C-4D5E-4F60-8A1B-2C3D4E5F6A7B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F1A2B3C-4D5E-4F60-8A1B-2C3D4E5F6A7B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F1A2B3C-4D5E-4F60-8A1B-2C3D4E5F6A7B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F1A2B3C-4D5E-4F60-8A1B-2C3D4E5F6A7B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF2B3C4D-5E6F-4A71-9B2C-3D4E5F6A7B8C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AF2B3C4D-5E6F-4A71-9B2C-3D4E5F6A7B8C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AF2B3C4D-5E6F-4A71-9B2C-3D4E5F6A7B8C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AF2B3C4D-5E6F-4A71-9B2C-3D4E5F6A7B8C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

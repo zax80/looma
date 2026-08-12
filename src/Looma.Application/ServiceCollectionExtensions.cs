@@ -10,10 +10,11 @@ namespace Looma.Application;
 /// milestone-1 interfaces. Callers must separately register
 /// <c>IVectorStore</c>, <c>IAnswerCache</c>,
 /// <c>IEmbeddingGenerator&lt;string, Embedding&lt;float&gt;&gt;</c>,
-/// and <c>IChatClient</c> (e.g. via
+/// <c>IChatClient</c>, and <c>IWebSearchProvider</c> (e.g. via
 /// <c>Looma.Infrastructure.VectorStore.Qdrant</c> /
-/// <c>Looma.Infrastructure.Llm</c>'s own extensions) — this method only
-/// wires the Application-layer orchestration on top of them.
+/// <c>Looma.Infrastructure.Llm</c> / <c>Looma.Infrastructure.WebSearch.SearXng</c>'s
+/// own extensions) — this method only wires the Application-layer
+/// orchestration on top of them.
 ///
 /// <see cref="IChatCompletionUseCase"/> is included here — it's stateless
 /// generation only (retrieval + prompt + LLM call), needs nothing beyond

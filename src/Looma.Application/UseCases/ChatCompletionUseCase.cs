@@ -173,17 +173,20 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IChatClient _chatClient;
+    private readonly IWebSearchProvider _webSearchProvider;
     private readonly RagOptions _ragOptions;
 
     public ChatCompletionUseCase(
         IVectorStore vectorStore,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IChatClient chatClient,
+        IWebSearchProvider webSearchProvider,
         IOptions<RagOptions> ragOptions)
     {
         _vectorStore = vectorStore;
         _embeddingGenerator = embeddingGenerator;
         _chatClient = chatClient;
+        _webSearchProvider = webSearchProvider;
         _ragOptions = ragOptions.Value;
     }
 
@@ -203,6 +206,17 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 
         var citations = await RagRetrieval
             .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        // See WebSearchFallback's doc comment — a no-op unless local
+        // retrieval above found nothing AND RagOptions.EnableWebSearch is
+        // on. Uses retrievalQuery (the reformulated one, when reformulation
+        // ran), same query already used for local retrieval just above —
+        // a vague follow-up should search the web for what it actually
+        // means, not its literal wording, for the same reason
+        // ReformulateQueryAsync exists at all.
+        citations = await WebSearchFallback
+            .AugmentIfEmptyAsync(citations, retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken)
             .ConfigureAwait(false);
 
         var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
