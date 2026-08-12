@@ -202,6 +202,19 @@ the remote server owns that entirely — it just connects and calls tools.
 supports so far); anything else fails at startup rather than silently
 connecting unauthenticated.
 
+## Qdrant unreachable
+
+If Qdrant itself is down or unreachable when a tool that needs it runs
+(`looma_chat`, `looma_answer`, `looma_search`, `looma_index`, `looma_count`,
+`looma_clear_cache`), the client gets a clear
+`"Can't reach Qdrant to <action> — make sure Qdrant is running..."` message
+instead of a generic, unhelpful `"An error occurred invoking 'x'"`. Nothing
+touches Qdrant at server startup — the server and any connected client
+start cleanly regardless; the error only surfaces the moment an actual
+request needs retrieval. See `VectorStoreUnavailableException`'s doc
+comment for the full mechanism (a real, reproduced case: stopping Qdrant
+mid-session and asking a chat question).
+
 ## Known gaps (not fixed here)
 
 - TLS is opt-in, not enforced — a server started with `Mcp.Tls.Enabled`

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using Looma.Application.UseCases;
 using Looma.Core.Entities;
+using Looma.Core.Exceptions;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -33,20 +34,27 @@ public static class SearchTool
         var results = new List<string>();
         var count = 0;
 
-        await foreach (var result in searchUseCase
-                           .SearchAsync(query, parsedCollection, topK, minRelevanceScore, cancellationToken)
-                           .ConfigureAwait(false))
+        try
         {
-            count++;
-            var line = FormatResult(count, result);
-            results.Add(line);
-
-            progress.Report(new ProgressNotificationValue
+            await foreach (var result in searchUseCase
+                               .SearchAsync(query, parsedCollection, topK, minRelevanceScore, cancellationToken)
+                               .ConfigureAwait(false))
             {
-                Progress = count,
-                Total = topK,
-                Message = JsonSerializer.Serialize(result, Wire.Options)
-            });
+                count++;
+                var line = FormatResult(count, result);
+                results.Add(line);
+
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = count,
+                    Total = topK,
+                    Message = JsonSerializer.Serialize(result, Wire.Options)
+                });
+            }
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
         }
 
         return results.Count > 0

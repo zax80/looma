@@ -121,9 +121,16 @@ public sealed class QdrantAnswerCache : IAnswerCache
             _fileLock.Release();
         }
 
-        using var response = await _httpClient
-            .DeleteAsync($"/collections/{_options.CollectionName}", cancellationToken)
-            .ConfigureAwait(false);
+        // Uses the same shared connectivity-failure translation
+        // QdrantVectorStore does — see QdrantConnectivity's doc comment for
+        // why this used to be hand-rolled here instead, and the real gap
+        // that caused (missing the TaskCanceledException/timeout case).
+        // This method deliberately doesn't swallow failures otherwise (see
+        // the class doc comment) — the caller explicitly asked for the
+        // cache to be gone.
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.DeleteAsync($"/collections/{_options.CollectionName}", cancellationToken),
+            $"clear the answer cache collection '{_options.CollectionName}'", cancellationToken).ConfigureAwait(false);
 
         // 404 means there was nothing to clear — that's the desired end
         // state, not a failure.

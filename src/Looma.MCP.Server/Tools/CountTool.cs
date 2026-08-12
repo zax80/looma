@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Looma.Application.UseCases;
+using Looma.Core.Exceptions;
 using ModelContextProtocol.Server;
 
 namespace Looma.MCP.Server.Tools;
@@ -16,7 +17,16 @@ public static class CountTool
         CancellationToken cancellationToken = default)
     {
         var parsedCollection = VectorCollectionParser.Parse(collection);
-        var count = await countUseCase.CountAsync(parsedCollection, cancellationToken).ConfigureAwait(false);
+
+        long count;
+        try
+        {
+            count = await countUseCase.CountAsync(parsedCollection, cancellationToken).ConfigureAwait(false);
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
+        }
 
         // Plain number, not "collection: N" — keeps this trivially parseable
         // for a machine client (Looma.MCP.Client); the tool name and
