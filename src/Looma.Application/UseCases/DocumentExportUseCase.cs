@@ -15,6 +15,7 @@ public sealed class DocumentExportUseCase : IDocumentExportUseCase
             DocumentExportFormat.Word => DocxDocumentWriter.Write(title, content),
             DocumentExportFormat.Markdown => Encoding.UTF8.GetBytes(BuildMarkdown(title, content)),
             DocumentExportFormat.PlainText => Encoding.UTF8.GetBytes(BuildPlainText(title, content)),
+            DocumentExportFormat.Pdf => PdfDocumentWriter.Write(title, content),
             _ => throw new NotSupportedException($"Unsupported export format: {format}")
         };
 

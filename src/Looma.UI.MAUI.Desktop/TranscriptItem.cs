@@ -82,7 +82,7 @@ public sealed class TranscriptItem : INotifyPropertyChanged
 
     public string ExportButtonText => _exportIntent switch
     {
-        { PdfRequestedButUnsupported: true } => "Export as .docx (PDF not supported yet)",
+        { Format: DocumentExportFormat.Pdf } => "Export as .pdf",
         { Format: DocumentExportFormat.Markdown } => "Export as .md",
         { Format: DocumentExportFormat.PlainText } => "Export as .txt",
         _ => "Export as .docx"

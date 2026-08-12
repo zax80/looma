@@ -41,7 +41,6 @@ public class DocumentGenerationIntentDetectorTests
 
         Assert.NotNull(intent);
         Assert.Equal(DocumentExportFormat.Word, intent!.Format);
-        Assert.False(intent.PdfRequestedButUnsupported);
     }
 
     [Theory]
@@ -50,22 +49,14 @@ public class DocumentGenerationIntentDetectorTests
     [InlineData("Create a plain text file with this", DocumentExportFormat.PlainText)]
     [InlineData("Export this as a .txt document", DocumentExportFormat.PlainText)]
     [InlineData("Generate a .docx report", DocumentExportFormat.Word)]
+    [InlineData("Generate this as a pdf", DocumentExportFormat.Pdf)]
+    [InlineData("Write this up as a .pdf", DocumentExportFormat.Pdf)]
     public void Detect_ExplicitFormat_ReturnsThatFormat(string message, DocumentExportFormat expected)
     {
         var intent = DocumentGenerationIntentDetector.Detect(message);
 
         Assert.NotNull(intent);
         Assert.Equal(expected, intent!.Format);
-    }
-
-    [Fact]
-    public void Detect_PdfRequested_FallsBackToWordButFlagsUnsupported()
-    {
-        var intent = DocumentGenerationIntentDetector.Detect("Generate this as a pdf");
-
-        Assert.NotNull(intent);
-        Assert.Equal(DocumentExportFormat.Word, intent!.Format);
-        Assert.True(intent.PdfRequestedButUnsupported);
     }
 
     [Fact]

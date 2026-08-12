@@ -31,4 +31,14 @@
     <PackageReference Include="DocumentFormat.OpenXml" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PDF generation for document export (PdfDocumentWriter) — same
+         SkiaSharp package Looma.Infrastructure.Llm already depends on for
+         CLIP image preprocessing (see Directory.Packages.props), reused
+         here via its SKDocument.CreatePdf API instead of adding a new
+         dedicated PDF-writing library. Same "offline, local-file-format
+         library, not a vendor SDK" reasoning as PdfPig/OpenXml above. -->
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
 </Project>

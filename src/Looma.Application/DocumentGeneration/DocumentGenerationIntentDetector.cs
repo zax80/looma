@@ -62,18 +62,16 @@ public static class DocumentGenerationIntentDetector
             return null;
         }
 
-        // Markdown/plain-text only trigger when explicitly named; anything
-        // else (including an explicit "pdf" request — see
-        // PdfRequestedButUnsupported below) falls back to Word, the
-        // configured default.
-        var format = mentionsMarkdown ? DocumentExportFormat.Markdown
+        // Pdf/Markdown/PlainText only trigger when explicitly named;
+        // anything else falls back to Word, the configured default. Pdf
+        // checked first since "pdf" and "markdown"/"plain text" mentioned
+        // together is an unlikely, ambiguous edge case not worth a richer
+        // rule for.
+        var format = mentionsPdf ? DocumentExportFormat.Pdf
+            : mentionsMarkdown ? DocumentExportFormat.Markdown
             : mentionsPlainText ? DocumentExportFormat.PlainText
             : DocumentExportFormat.Word;
 
-        return new DocumentGenerationIntent
-        {
-            Format = format,
-            PdfRequestedButUnsupported = mentionsPdf && !mentionsMarkdown && !mentionsPlainText
-        };
+        return new DocumentGenerationIntent { Format = format };
     }
 }
