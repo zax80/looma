@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Looma.Application;
 using Looma.Application.Configuration;
 using Looma.CLI.Commands;
+using Looma.Core.Exceptions;
 using Looma.Infrastructure.Llm;
 using Looma.Infrastructure.LocalStore;
 using Looma.Infrastructure.VectorStore.Qdrant;
@@ -187,6 +188,15 @@ public static class Program
         catch (QdrantRequestException ex)
         {
             Console.Error.WriteLine($"Qdrant error: {ex.Message}");
+            return 1;
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            // Same "clean one-line error, not a raw stack-trace crash"
+            // discipline as the QdrantRequestException case above — see
+            // the exception's own doc comment for the real case this
+            // fixes (Qdrant stopped mid-session).
+            Console.Error.WriteLine(ex.Message);
             return 1;
         }
         catch (McpException ex)

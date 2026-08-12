@@ -39,7 +39,9 @@ public sealed class QdrantVectorStore : IVectorStore
     {
         var name = ResolveCollectionName(collection);
 
-        using var existing = await _httpClient.GetAsync($"/collections/{name}", cancellationToken).ConfigureAwait(false);
+        using var existing = await QdrantConnectivity.SendAsync(
+            () => _httpClient.GetAsync($"/collections/{name}", cancellationToken),
+            $"check collection '{name}'", cancellationToken).ConfigureAwait(false);
         if (existing.StatusCode == HttpStatusCode.OK)
         {
             // Already exists. Not attempting a dimension-mismatch check here —
@@ -58,8 +60,9 @@ public sealed class QdrantVectorStore : IVectorStore
             Vectors = new VectorParams { Size = dimensions, Distance = DistanceMetric }
         };
 
-        using var response = await _httpClient.PutAsJsonAsync($"/collections/{name}", request, cancellationToken)
-            .ConfigureAwait(false);
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.PutAsJsonAsync($"/collections/{name}", request, cancellationToken),
+            $"create collection '{name}'", cancellationToken).ConfigureAwait(false);
         await ThrowIfUnsuccessful(response, $"create collection '{name}'", cancellationToken).ConfigureAwait(false);
     }
 
@@ -86,9 +89,9 @@ public sealed class QdrantVectorStore : IVectorStore
 
         var request = new UpsertPointsRequest { Points = points };
 
-        using var response = await _httpClient
-            .PutAsJsonAsync($"/collections/{name}/points?wait=true", request, cancellationToken)
-            .ConfigureAwait(false);
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.PutAsJsonAsync($"/collections/{name}/points?wait=true", request, cancellationToken),
+            $"upsert {points.Count} point(s) into '{name}'", cancellationToken).ConfigureAwait(false);
         await ThrowIfUnsuccessful(response, $"upsert {points.Count} point(s) into '{name}'", cancellationToken)
             .ConfigureAwait(false);
     }
@@ -102,18 +105,12 @@ public sealed class QdrantVectorStore : IVectorStore
     {
         var name = ResolveCollectionName(collection);
 
-        var request = new SearchPointsRequest
-        {
-            Vector = queryEmbedding.ToArray(),
-            Limit = topK,
-            ScoreThreshold = minRelevanceScore,
-            WithPayload = true
-        };
-
-        using var response = await _httpClient
-            .PostAsJsonAsync($"/collections/{name}/points/search", request, cancellationToken)
+        // The actual network call/parsing lives in a non-iterator helper —
+        // `yield return` isn't allowed inside a try/catch with a catch
+        // clause (only try/finally), and SendAsync's connectivity-failure
+        // translation needs exactly that, so it can't live inline here.
+        var body = await ExecuteSearchAsync(name, queryEmbedding, topK, minRelevanceScore, cancellationToken)
             .ConfigureAwait(false);
-        await ThrowIfUnsuccessful(response, $"search '{name}'", cancellationToken).ConfigureAwait(false);
 
         // Qdrant's REST search returns one JSON payload, not a chunked/SSE
         // stream — a single top-k query isn't the "long-running operation"
@@ -121,9 +118,6 @@ public sealed class QdrantVectorStore : IVectorStore
         // generating an answer). Yielding here still keeps the abstraction
         // consistent with the rest of the pipeline and avoids callers ever
         // needing to materialize a List<T> themselves.
-        var body = await response.Content.ReadFromJsonAsync<SearchPointsResponse>(cancellationToken)
-            .ConfigureAwait(false);
-
         foreach (var point in body?.Result ?? [])
         {
             if (point.Payload is null)
@@ -141,6 +135,30 @@ public sealed class QdrantVectorStore : IVectorStore
         }
     }
 
+    private async Task<SearchPointsResponse?> ExecuteSearchAsync(
+        string name,
+        ReadOnlyMemory<float> queryEmbedding,
+        int topK,
+        float? minRelevanceScore,
+        CancellationToken cancellationToken)
+    {
+        var request = new SearchPointsRequest
+        {
+            Vector = queryEmbedding.ToArray(),
+            Limit = topK,
+            ScoreThreshold = minRelevanceScore,
+            WithPayload = true
+        };
+
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.PostAsJsonAsync($"/collections/{name}/points/search", request, cancellationToken),
+            $"search '{name}'", cancellationToken).ConfigureAwait(false);
+        await ThrowIfUnsuccessful(response, $"search '{name}'", cancellationToken).ConfigureAwait(false);
+
+        return await response.Content.ReadFromJsonAsync<SearchPointsResponse>(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task DeleteAsync(
         VectorCollection collection,
         IReadOnlyList<string> ids,
@@ -154,9 +172,9 @@ public sealed class QdrantVectorStore : IVectorStore
         var name = ResolveCollectionName(collection);
         var request = new DeletePointsRequest { Points = ids };
 
-        using var response = await _httpClient
-            .PostAsJsonAsync($"/collections/{name}/points/delete?wait=true", request, cancellationToken)
-            .ConfigureAwait(false);
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.PostAsJsonAsync($"/collections/{name}/points/delete?wait=true", request, cancellationToken),
+            $"delete {ids.Count} point(s) from '{name}'", cancellationToken).ConfigureAwait(false);
         await ThrowIfUnsuccessful(response, $"delete {ids.Count} point(s) from '{name}'", cancellationToken)
             .ConfigureAwait(false);
     }
@@ -167,9 +185,9 @@ public sealed class QdrantVectorStore : IVectorStore
     {
         var name = ResolveCollectionName(collection);
 
-        using var response = await _httpClient
-            .PostAsJsonAsync($"/collections/{name}/points/count", new CountPointsRequest { Exact = true }, cancellationToken)
-            .ConfigureAwait(false);
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.PostAsJsonAsync($"/collections/{name}/points/count", new CountPointsRequest { Exact = true }, cancellationToken),
+            $"count '{name}'", cancellationToken).ConfigureAwait(false);
         await ThrowIfUnsuccessful(response, $"count '{name}'", cancellationToken).ConfigureAwait(false);
 
         var body = await response.Content.ReadFromJsonAsync<CountPointsResponse>(cancellationToken)
@@ -183,7 +201,9 @@ public sealed class QdrantVectorStore : IVectorStore
     {
         var name = ResolveCollectionName(collection);
 
-        using var response = await _httpClient.DeleteAsync($"/collections/{name}", cancellationToken).ConfigureAwait(false);
+        using var response = await QdrantConnectivity.SendAsync(
+            () => _httpClient.DeleteAsync($"/collections/{name}", cancellationToken),
+            $"clear collection '{name}'", cancellationToken).ConfigureAwait(false);
 
         // 404 means there was nothing to clear — that's the desired end
         // state, not a failure. EnsureCollectionAsync recreates it lazily

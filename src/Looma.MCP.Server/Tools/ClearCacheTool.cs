@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Looma.Core.Abstractions;
+using Looma.Core.Exceptions;
 using ModelContextProtocol.Server;
 
 namespace Looma.MCP.Server.Tools;
@@ -14,7 +15,15 @@ public static class ClearCacheTool
         IAnswerCache answerCache,
         CancellationToken cancellationToken = default)
     {
-        await answerCache.ClearAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await answerCache.ClearAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
+        }
+
         return "Answer cache cleared.";
     }
 }

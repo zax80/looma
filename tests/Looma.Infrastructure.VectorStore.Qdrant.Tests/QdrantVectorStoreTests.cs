@@ -1,5 +1,6 @@
 using Looma.Core.Abstractions;
 using Looma.Core.Entities;
+using Looma.Core.Exceptions;
 using Looma.Infrastructure.VectorStore.Qdrant;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -240,5 +241,64 @@ public sealed class QdrantVectorStoreTests : IClassFixture<QdrantFixture>
 
         Assert.Equal(documentsCountBefore, documentsCountAfter);
         Assert.Equal(imagesCountBefore + 1, imagesCountAfter);
+    }
+
+    // ---- Qdrant unreachable (not gated behind SkipIfUnavailable — these
+    // deliberately point at a real, guaranteed-nothing-listening endpoint,
+    // independent of whether the fixture's actual Qdrant instance is up) ----
+
+    /// <summary>
+    /// A real, live socket connection attempt against a port nothing is
+    /// listening on — per CLAUDE.md's no-mocks-only rule for
+    /// Infrastructure.*, this is a genuine network failure (a real
+    /// SocketException/HttpRequestException), not a faked-up
+    /// HttpMessageHandler standing in for one. Reproduces exactly what a
+    /// stopped local Qdrant container looks like from this class's
+    /// perspective — see VectorStoreUnavailableException's doc comment for
+    /// the real end-to-end bug this was found fixing.
+    /// </summary>
+    private static QdrantVectorStore CreateUnreachableStore() => new(
+        new HttpClient { BaseAddress = new Uri("http://localhost:1"), Timeout = TimeSpan.FromSeconds(3) },
+        Options.Create(new QdrantOptions
+        {
+            Endpoint = "http://localhost:1",
+            Collections = new QdrantCollectionNames { Documents = "unreachable_test", Images = "unreachable_test" }
+        }));
+
+    [Fact]
+    public async Task SearchAsync_QdrantUnreachable_ThrowsVectorStoreUnavailableException()
+    {
+        var store = CreateUnreachableStore();
+
+        var ex = await Assert.ThrowsAsync<VectorStoreUnavailableException>(async () =>
+        {
+            await foreach (var _ in store.SearchAsync(VectorCollection.Documents, new ReadOnlyMemory<float>([1f, 0f, 0f, 0f]), topK: 5))
+            {
+            }
+        });
+
+        Assert.Contains("Qdrant", ex.Message);
+        Assert.NotNull(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task CountAsync_QdrantUnreachable_ThrowsVectorStoreUnavailableException()
+    {
+        var store = CreateUnreachableStore();
+
+        var ex = await Assert.ThrowsAsync<VectorStoreUnavailableException>(
+            () => store.CountAsync(VectorCollection.Documents));
+
+        Assert.Contains("Qdrant", ex.Message);
+        Assert.NotNull(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task EnsureCollectionAsync_QdrantUnreachable_ThrowsVectorStoreUnavailableException()
+    {
+        var store = CreateUnreachableStore();
+
+        await Assert.ThrowsAsync<VectorStoreUnavailableException>(
+            () => store.EnsureCollectionAsync(VectorCollection.Documents, Dimensions));
     }
 }

@@ -22,6 +22,23 @@ namespace Looma.Application.UseCases;
 /// something entirely different depending on the conversation it's
 /// embedded in (e.g. "what about the second one?" asked in two different
 /// sessions). Every chat turn is a fresh generation.
+///
+/// Balanced turns, even on failure: a real, reproduced bug — if generation
+/// throws (e.g. Qdrant was briefly unreachable) after the user's message
+/// was already persisted, the session was left with a User entry and no
+/// matching Assistant reply. The NEXT turn then fed the model two
+/// consecutive User messages with no Assistant message between them —
+/// confirmed, by reading the actual saved session file, to make even a
+/// forceful "answer THIS resolved question" instruction (see
+/// <see cref="ChatCompletionUseCase.BuildPrompt"/>) get ignored: the
+/// conversation shape itself was out of the alternating User/Assistant
+/// structure any chat model is trained on, not just ambiguously worded.
+/// <see cref="SendMessageAsync"/> now always appends a synthetic Assistant
+/// entry when the turn fails, before rethrowing — the failure is still
+/// surfaced to the caller exactly as before, but every future turn's
+/// history stays alternating and honestly reflects that no real answer
+/// was given (so the grounding rule's "anything you already said" clause
+/// can't mistake it for a real fact either).
 /// </summary>
 public sealed class ChatUseCase : IChatUseCase
 {
@@ -73,20 +90,68 @@ public sealed class ChatUseCase : IChatUseCase
         var fullAnswer = new StringBuilder();
         IReadOnlyList<DocumentChunk>? finalCitations = null;
 
-        await foreach (var token in _chatCompletionUseCase
+        // Manually pumping the enumerator (rather than a plain `await
+        // foreach`) is what lets a failure be caught here at all — `yield
+        // return` can't appear inside a try block that has a catch clause,
+        // only try/finally, so the actual try/catch has to wrap just the
+        // MoveNextAsync call, with the yield sitting after it, still inside
+        // the outer try/finally. The catch block itself has no such
+        // restriction, so it can `await` the synthetic-message append and
+        // still use a bare `throw;` to preserve the original stack trace.
+        // See the class doc comment's "Balanced turns, even on failure"
+        // section for why this exists.
+        var enumerator = _chatCompletionUseCase
             .CompleteAsync(session.Messages, message, attachmentContext, cancellationToken)
-            .ConfigureAwait(false))
+            .GetAsyncEnumerator(cancellationToken);
+        try
         {
-            if (!token.IsFinal)
+            while (true)
             {
-                fullAnswer.Append(token.Text);
-            }
-            else
-            {
-                finalCitations = token.Citations;
-            }
+                AnswerToken current;
+                try
+                {
+                    if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        break;
+                    }
+                    current = enumerator.Current;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A genuinely cancelled/superseded turn isn't a
+                    // "failure" in the sense this fix cares about — the
+                    // user moved on, there's nothing useful to record.
+                    throw;
+                }
+                catch (Exception)
+                {
+                    var failureMessage = new ChatMessageEntry
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Role = ChatMessageRole.Assistant,
+                        Text = "(No answer was generated — this attempt failed before Looma could reply. " +
+                               "Nothing here should be treated as an answer to any question.)",
+                        CreatedAtUtc = DateTimeOffset.UtcNow
+                    };
+                    await _sessionStore.AppendMessageAsync(sessionId, failureMessage, cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
 
-            yield return token;
+                if (!current.IsFinal)
+                {
+                    fullAnswer.Append(current.Text);
+                }
+                else
+                {
+                    finalCitations = current.Citations;
+                }
+
+                yield return current;
+            }
+        }
+        finally
+        {
+            await enumerator.DisposeAsync().ConfigureAwait(false);
         }
 
         var assistantMessage = new ChatMessageEntry

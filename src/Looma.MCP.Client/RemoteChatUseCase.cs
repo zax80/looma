@@ -18,6 +18,12 @@ namespace Looma.MCP.Client;
 /// doc comment for why sessions never live server-side: they're just
 /// conversation text, nothing in them needs Qdrant/Ollama, so there's no
 /// reason to make the server stateful for them.
+///
+/// Balanced turns, even on failure: see
+/// <c>Looma.Application.UseCases.ChatUseCase</c>'s doc comment — this class
+/// has the identical dangling-turn bug (and identical fix) for the same
+/// reason: session persistence is local to both, only generation differs
+/// (remote tool call here vs. in-process there).
 /// </summary>
 public sealed class RemoteChatUseCase : IChatUseCase
 {
@@ -87,19 +93,67 @@ public sealed class RemoteChatUseCase : IChatUseCase
         var fullAnswer = new StringBuilder();
         IReadOnlyList<DocumentChunk>? finalCitations = null;
 
-        await foreach (var token in RemoteStreamHelper.StreamAsync<AnswerToken>(_client, "looma_chat", arguments, cancellationToken)
-            .ConfigureAwait(false))
+        // Manually pumping the enumerator (rather than a plain `await
+        // foreach`) is what lets a failure be caught here at all — `yield
+        // return` can't appear inside a try block that has a catch clause,
+        // only try/finally, so the actual try/catch has to wrap just the
+        // MoveNextAsync call, with the yield sitting after it, still inside
+        // the outer try/finally. The catch block itself has no such
+        // restriction, so it can `await` the synthetic-message append and
+        // still use a bare `throw;` to preserve the original stack trace.
+        // See the class doc comment's "Balanced turns, even on failure"
+        // section for why this exists.
+        var enumerator = RemoteStreamHelper.StreamAsync<AnswerToken>(_client, "looma_chat", arguments, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        try
         {
-            if (!token.IsFinal)
+            while (true)
             {
-                fullAnswer.Append(token.Text);
-            }
-            else
-            {
-                finalCitations = token.Citations;
-            }
+                AnswerToken current;
+                try
+                {
+                    if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        break;
+                    }
+                    current = enumerator.Current;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A genuinely cancelled/superseded turn isn't a
+                    // "failure" in the sense this fix cares about — the
+                    // user moved on, there's nothing useful to record.
+                    throw;
+                }
+                catch (Exception)
+                {
+                    var failureMessage = new ChatMessageEntry
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Role = ChatMessageRole.Assistant,
+                        Text = "(No answer was generated — this attempt failed before Looma could reply. " +
+                               "Nothing here should be treated as an answer to any question.)",
+                        CreatedAtUtc = DateTimeOffset.UtcNow
+                    };
+                    await _sessionStore.AppendMessageAsync(sessionId, failureMessage, cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
 
-            yield return token;
+                if (!current.IsFinal)
+                {
+                    fullAnswer.Append(current.Text);
+                }
+                else
+                {
+                    finalCitations = current.Citations;
+                }
+
+                yield return current;
+            }
+        }
+        finally
+        {
+            await enumerator.DisposeAsync().ConfigureAwait(false);
         }
 
         var assistantMessage = new ChatMessageEntry

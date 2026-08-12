@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Looma.Application.UseCases;
 using Looma.Core.Entities;
+using Looma.Core.Exceptions;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -36,28 +37,35 @@ public static class AnswerTool
         var answerText = new StringBuilder();
         IReadOnlyList<DocumentChunk>? citations = null;
 
-        await foreach (var token in answerUseCase.AnswerAsync(question, cancellationToken).ConfigureAwait(false))
+        try
         {
-            answerText.Append(token.Text);
-
-            // Strip embedding vectors before this crosses the wire — see the
-            // class doc comment. `with` on a record only rewrites the
-            // top-level Citations reference; token.Citations itself (and the
-            // real DocumentChunk instances used elsewhere in-process) are untouched.
-            var wireToken = token.Citations is null
-                ? token
-                : token with { Citations = token.Citations.Select(c => c with { Embedding = null }).ToList() };
-
-            progress.Report(new ProgressNotificationValue
+            await foreach (var token in answerUseCase.AnswerAsync(question, cancellationToken).ConfigureAwait(false))
             {
-                Progress = answerText.Length,
-                Message = JsonSerializer.Serialize(wireToken, Wire.Options)
-            });
+                answerText.Append(token.Text);
 
-            if (token.IsFinal)
-            {
-                citations = token.Citations;
+                // Strip embedding vectors before this crosses the wire — see the
+                // class doc comment. `with` on a record only rewrites the
+                // top-level Citations reference; token.Citations itself (and the
+                // real DocumentChunk instances used elsewhere in-process) are untouched.
+                var wireToken = token.Citations is null
+                    ? token
+                    : token with { Citations = token.Citations.Select(c => c with { Embedding = null }).ToList() };
+
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = answerText.Length,
+                    Message = JsonSerializer.Serialize(wireToken, Wire.Options)
+                });
+
+                if (token.IsFinal)
+                {
+                    citations = token.Citations;
+                }
             }
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
         }
 
         if (citations is null || citations.Count == 0)

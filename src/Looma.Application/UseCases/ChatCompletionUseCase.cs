@@ -98,6 +98,27 @@ namespace Looma.Application.UseCases;
 /// rather than the underlying topic. Giving the model exactly one
 /// instruction for this case, not two competing ones to reconcile itself,
 /// is what actually fixed it.
+///
+/// Vague follow-ups after a failed prior turn: a third real case — a chat
+/// question failed (Qdrant briefly unreachable) before Looma ever replied.
+/// The next message, "And now?", retrieved the right chunk fine (query
+/// reformulation correctly resolved it against the dangling unanswered
+/// question) but generation still refused. Two instruction-wording fixes
+/// were tried here in <see cref="BuildPrompt"/> — a parenthetical hint,
+/// then a dedicated directive stating the resolved question outright —
+/// and BOTH failed identically, confirmed via the actual saved session.
+/// The real root cause turned out to be structural, not wording: the
+/// failed prior turn left a User message with no matching Assistant reply
+/// (see <c>ChatUseCase.SendMessageAsync</c>'s doc comment), so the model
+/// was fed two consecutive User messages with no Assistant turn between
+/// them — a conversation shape no chat model is trained to expect, which
+/// no amount of instruction text in the CURRENT turn could reliably talk
+/// it out of. The actual fix lives in <c>ChatUseCase</c> and
+/// <c>RemoteChatUseCase</c> (always append a synthetic Assistant entry
+/// when a turn fails, keeping history alternating). The dedicated
+/// directive below is kept regardless — it's a genuine improvement for
+/// ordinary follow-ups whenever reformulation meaningfully changes the
+/// query, independent of this bug.
 /// </summary>
 public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 {
@@ -184,7 +205,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
             .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        var promptMessages = BuildPrompt(history, message, citations, attachmentContext);
+        var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
 
         var chatOptions = new ChatOptions { Temperature = _ragOptions.AnswerTemperature };
         if (_ragOptions.MaxAnswerTokens is { } maxTokens)
@@ -278,6 +299,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
     private static List<ChatMessage> BuildPrompt(
         IReadOnlyList<ChatMessageEntry> priorMessages,
         string currentMessage,
+        string retrievalQuery,
         IReadOnlyList<DocumentChunk> citations,
         string? attachmentContext)
     {
@@ -348,6 +370,25 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         // instruction per case removes that conflict instead of trying to
         // out-word it.
         var isExportRequest = DocumentGenerationIntentDetector.Detect(currentMessage) is not null;
+
+        // A real, CONFIRMED case (verified against the actual saved chat
+        // session, not just inferred): a vague follow-up ("And now?") sent
+        // right after an earlier turn that failed before Looma ever
+        // replied (e.g. Qdrant was briefly down) — retrieval found the
+        // right chunk (ReformulateQueryAsync correctly resolved "And now?"
+        // into "What is the current status of the coffee?"), but
+        // generation still refused. The first attempt at fixing this
+        // appended the resolved query as a quiet parenthetical next to the
+        // literal question — confirmed NOT enough; the model just ignored
+        // it and refused anyway. Same lesson as the export-request case
+        // right above: a small local model needs ONE clear instruction to
+        // act on, not a footnote competing with the literal wording for
+        // attention. This branch swaps in a dedicated instruction that
+        // explicitly states the resolved question as what to actually
+        // answer, the same structural fix that worked for exports.
+        var reformulatedDiffersFromMessage =
+            !string.Equals(retrievalQuery.Trim(), currentMessage.Trim(), StringComparison.OrdinalIgnoreCase);
+
         var instructionText = isExportRequest
             ? "This message is a request to prepare the relevant information from the context " +
               "above (and/or anything you already said earlier in this conversation) for export " +
@@ -359,6 +400,15 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
               $"Only reply with exactly \"{GroundedAnswer.NoAnswerSentence}\" if the context above " +
               "and everything you've already said truly contain nothing relevant to the " +
               "underlying topic at all."
+            : reformulatedDiffersFromMessage
+            ? $"The user's message, \"{currentMessage}\", is a follow-up whose real meaning depends on " +
+              $"this conversation. Based on the conversation so far, what it's actually asking is: " +
+              $"\"{retrievalQuery}\" — treat that restated question as the one to answer, not the " +
+              "follow-up's own literal wording. Answer it using the context above and/or anything " +
+              "you already said earlier in this conversation — summarizing, combining, translating, " +
+              "or rephrasing either is fine, but don't add any new fact that isn't in one of the two. " +
+              $"Only reply with exactly \"{GroundedAnswer.NoAnswerSentence}\" if neither the context " +
+              "above nor anything you've already said covers that restated question."
             : "Answer using the context above and/or anything you already said earlier in this " +
               "conversation — summarizing, combining, translating, or rephrasing either is fine, " +
               "but don't add any new fact that isn't in one of the two. If neither covers the " +

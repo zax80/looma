@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using Looma.Application.UseCases;
 using Looma.Core.Entities;
+using Looma.Core.Exceptions;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
@@ -41,39 +42,46 @@ public static class IndexTool
         var totalChunks = 0;
         var lines = new List<string>();
 
-        await foreach (var evt in indexingUseCase.IndexAsync(path, recursive, clearFirst, cancellationToken)
-                           .ConfigureAwait(false))
+        try
         {
-            var line = evt.Status switch
+            await foreach (var evt in indexingUseCase.IndexAsync(path, recursive, clearFirst, cancellationToken)
+                               .ConfigureAwait(false))
             {
-                IndexingStatus.Completed => $"[{evt.FileIndex}/{evt.TotalFiles}] Indexed {evt.FilePath} ({evt.ChunksIndexed} chunks)",
-                IndexingStatus.Skipped => $"[{evt.FileIndex}/{evt.TotalFiles}] Skipped {evt.FilePath}" +
-                                           (evt.ErrorMessage is null ? string.Empty : $" — {evt.ErrorMessage}"),
-                IndexingStatus.Failed => $"[{evt.FileIndex}/{evt.TotalFiles}] Failed {evt.FilePath} — {evt.ErrorMessage}",
-                _ => $"[{evt.FileIndex}/{evt.TotalFiles}] {evt.Status} {evt.FilePath}"
-            };
-            lines.Add(line);
+                var line = evt.Status switch
+                {
+                    IndexingStatus.Completed => $"[{evt.FileIndex}/{evt.TotalFiles}] Indexed {evt.FilePath} ({evt.ChunksIndexed} chunks)",
+                    IndexingStatus.Skipped => $"[{evt.FileIndex}/{evt.TotalFiles}] Skipped {evt.FilePath}" +
+                                               (evt.ErrorMessage is null ? string.Empty : $" — {evt.ErrorMessage}"),
+                    IndexingStatus.Failed => $"[{evt.FileIndex}/{evt.TotalFiles}] Failed {evt.FilePath} — {evt.ErrorMessage}",
+                    _ => $"[{evt.FileIndex}/{evt.TotalFiles}] {evt.Status} {evt.FilePath}"
+                };
+                lines.Add(line);
 
-            switch (evt.Status)
-            {
-                case IndexingStatus.Completed:
-                    completed++;
-                    totalChunks += evt.ChunksIndexed;
-                    break;
-                case IndexingStatus.Skipped:
-                    skipped++;
-                    break;
-                case IndexingStatus.Failed:
-                    failed++;
-                    break;
+                switch (evt.Status)
+                {
+                    case IndexingStatus.Completed:
+                        completed++;
+                        totalChunks += evt.ChunksIndexed;
+                        break;
+                    case IndexingStatus.Skipped:
+                        skipped++;
+                        break;
+                    case IndexingStatus.Failed:
+                        failed++;
+                        break;
+                }
+
+                progress.Report(new ProgressNotificationValue
+                {
+                    Progress = evt.FileIndex ?? completed + skipped + failed,
+                    Total = evt.TotalFiles ?? 0,
+                    Message = JsonSerializer.Serialize(evt, Wire.Options)
+                });
             }
-
-            progress.Report(new ProgressNotificationValue
-            {
-                Progress = evt.FileIndex ?? completed + skipped + failed,
-                Total = evt.TotalFiles ?? 0,
-                Message = JsonSerializer.Serialize(evt, Wire.Options)
-            });
+        }
+        catch (VectorStoreUnavailableException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
         }
 
         lines.Add($"Done: {completed} indexed ({totalChunks} chunks), {skipped} skipped, {failed} failed.");
