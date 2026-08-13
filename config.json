@@ -59,7 +59,7 @@
     "Password": null
   },
   "WebSearch": {
-    "Endpoint": "http://localhost:8080",
+    "Endpoint": "https://html.duckduckgo.com",
     "TimeoutSeconds": 10
   },
   "Mcp": {
@@ -94,7 +94,7 @@
     "EnableAdaptiveThreshold": true,
     "AdaptiveFloorScore": 0.40,
     "AdaptiveThresholdMargin": 0.15,
-    "EnableWebSearch": false,
+    "EnableWebSearch": true,
     "WebSearchMaxResults": 3
   },
   "AnswerCache": {

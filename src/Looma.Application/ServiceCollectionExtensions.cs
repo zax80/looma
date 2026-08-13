@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddLoomaApplicationUseCases(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<RagOptions>().Bind(configuration.GetSection(RagOptions.SectionName));
+        services.AddOptions<ChatModelOptions>().Bind(configuration.GetSection(ChatModelOptions.SectionName));
         services.AddOptions<EmbeddingModelOptions>().Bind(configuration.GetSection(EmbeddingModelOptions.SectionName));
         services.AddOptions<ImageEmbeddingModelOptions>().Bind(configuration.GetSection(ImageEmbeddingModelOptions.SectionName));
 

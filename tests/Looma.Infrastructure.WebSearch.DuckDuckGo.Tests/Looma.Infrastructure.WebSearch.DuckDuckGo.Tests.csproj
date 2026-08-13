@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Looma.Core\Looma.Core.csproj" />
-    <ProjectReference Include="..\..\src\Looma.Infrastructure.WebSearch.SearXng\Looma.Infrastructure.WebSearch.SearXng.csproj" />
+    <ProjectReference Include="..\..\src\Looma.Infrastructure.WebSearch.DuckDuckGo\Looma.Infrastructure.WebSearch.DuckDuckGo.csproj" />
   </ItemGroup>
 
   <ItemGroup>

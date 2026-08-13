@@ -6,7 +6,7 @@ using Looma.Core.Exceptions;
 using Looma.Infrastructure.Llm;
 using Looma.Infrastructure.LocalStore;
 using Looma.Infrastructure.VectorStore.Qdrant;
-using Looma.Infrastructure.WebSearch.SearXng;
+using Looma.Infrastructure.WebSearch.DuckDuckGo;
 using Looma.MCP.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -305,7 +305,7 @@ public static class Program
 
         services.AddQdrantVectorStore(configuration);
         services.AddQdrantAnswerCache(configuration);
-        services.AddSearXngWebSearch(configuration);
+        services.AddDuckDuckGoWebSearch(configuration);
         services.AddLoomaLocalChatStore(configuration);
         services.AddLoomaChatClient(configuration);
         services.AddLoomaEmbeddingGenerator(configuration);

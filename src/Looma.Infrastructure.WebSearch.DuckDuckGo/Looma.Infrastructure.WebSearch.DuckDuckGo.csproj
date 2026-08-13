@@ -7,11 +7,16 @@
   <ItemGroup>
     <!-- Versions pinned centrally in Directory.Packages.props.
 
-         Same reasoning as Looma.Infrastructure.VectorStore.Qdrant: SearXNG's
-         JSON search API (https://docs.searxng.org/dev/search_api.html) is a
-         small, stable HTTP+JSON surface — a raw HttpClient + System.Text.Json
-         call is less risk than pulling in a third-party SearXNG client
-         package whose maintenance/TFM support we haven't verified. -->
+         Deliberately no HTML-parsing package (AngleSharp/HtmlAgilityPack)
+         and no DuckDuckGo client package — this hits DuckDuckGo's own
+         unofficial HTML results page (no API, no key — see
+         DuckDuckGoWebSearchProvider's doc comment for why one exists at
+         all) with plain HttpClient and extracts results with regex against
+         its long-stable result__a/result__snippet markup
+         (DuckDuckGoResultParser). A real parsing library would be more
+         robust to markup drift, but the whole point of this project is
+         zero new dependencies for "everything in Looma" — see the
+         conversation that led here. -->
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

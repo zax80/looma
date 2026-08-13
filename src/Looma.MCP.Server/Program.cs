@@ -2,7 +2,7 @@ using System.Security.Cryptography.X509Certificates;
 using Looma.Application;
 using Looma.Infrastructure.Llm;
 using Looma.Infrastructure.VectorStore.Qdrant;
-using Looma.Infrastructure.WebSearch.SearXng;
+using Looma.Infrastructure.WebSearch.DuckDuckGo;
 using Looma.MCP.Server.Auth;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.Configuration;
@@ -199,7 +199,7 @@ public static class Program
         {
             builder.Services.AddQdrantVectorStore(configuration);
             builder.Services.AddQdrantAnswerCache(configuration);
-            builder.Services.AddSearXngWebSearch(configuration);
+            builder.Services.AddDuckDuckGoWebSearch(configuration);
             builder.Services.AddLoomaChatClient(configuration);
             builder.Services.AddLoomaEmbeddingGenerator(configuration);
             builder.Services.AddLoomaImageCaptioner(configuration);

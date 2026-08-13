@@ -119,6 +119,18 @@ namespace Looma.Application.UseCases;
 /// directive below is kept regardless — it's a genuine improvement for
 /// ordinary follow-ups whenever reformulation meaningfully changes the
 /// query, independent of this bug.
+///
+/// Web search fallback: same design as <c>AnswerUseCase</c>'s (see its
+/// class doc comment for the full reasoning) — when
+/// <see cref="RagOptions.EnableWebSearch"/> is on, a local-only answer
+/// that comes back as a refusal triggers a web search (using
+/// <c>retrievalQuery</c>, the reformulated query, not the user's literal
+/// wording) and a second generation pass using the web results. That
+/// decision can only be made after a complete answer exists, so turning
+/// <c>EnableWebSearch</c> on trades away live per-token streaming for this
+/// turn only — the answer is generated fully, then emitted as one burst.
+/// With <c>EnableWebSearch</c> off (the default), <see cref="CompleteAsync"/>
+/// streams exactly as it always has.
 /// </summary>
 public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 {
@@ -170,24 +182,39 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         "already standalone and doesn't depend on anything earlier in the conversation, output it " +
         "completely unchanged. Keep it a short, specific search query, not a full sentence.";
 
+    /// <summary>
+    /// Rough character budget for everything in the prompt OTHER than
+    /// conversation history — system prompt, retrieved context block, and
+    /// the largest <c>instructionText</c> variant in <see cref="BuildPrompt"/>
+    /// (the export-request one) plus its "Context:\n...\n\nQuestion:"
+    /// wrapper. Deliberately a flat over-estimate rather than computed
+    /// exactly per call — see <c>ConversationHistoryBudget</c>'s doc
+    /// comment on why erring toward trimming a bit more than strictly
+    /// necessary is the safe direction to be wrong in.
+    /// </summary>
+    private const int ReservedNonHistoryChars = 1500;
+
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IChatClient _chatClient;
     private readonly IWebSearchProvider _webSearchProvider;
     private readonly RagOptions _ragOptions;
+    private readonly ChatModelOptions _chatModelOptions;
 
     public ChatCompletionUseCase(
         IVectorStore vectorStore,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IChatClient chatClient,
         IWebSearchProvider webSearchProvider,
-        IOptions<RagOptions> ragOptions)
+        IOptions<RagOptions> ragOptions,
+        IOptions<ChatModelOptions> chatModelOptions)
     {
         _vectorStore = vectorStore;
         _embeddingGenerator = embeddingGenerator;
         _chatClient = chatClient;
         _webSearchProvider = webSearchProvider;
         _ragOptions = ragOptions.Value;
+        _chatModelOptions = chatModelOptions.Value;
     }
 
     public async IAsyncEnumerable<AnswerToken> CompleteAsync(
@@ -208,32 +235,59 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
             .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        // See WebSearchFallback's doc comment — a no-op unless local
-        // retrieval above found nothing AND RagOptions.EnableWebSearch is
-        // on. Uses retrievalQuery (the reformulated one, when reformulation
-        // ran), same query already used for local retrieval just above —
-        // a vague follow-up should search the web for what it actually
-        // means, not its literal wording, for the same reason
-        // ReformulateQueryAsync exists at all.
-        citations = await WebSearchFallback
-            .AugmentIfEmptyAsync(citations, retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken)
-            .ConfigureAwait(false);
-
-        var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
-
         var chatOptions = new ChatOptions { Temperature = _ragOptions.AnswerTemperature };
         if (_ragOptions.MaxAnswerTokens is { } maxTokens)
         {
             chatOptions.MaxOutputTokens = maxTokens;
         }
 
-        await foreach (var update in _chatClient.GetStreamingResponseAsync(promptMessages, chatOptions, cancellationToken)
-            .ConfigureAwait(false))
+        if (!_ragOptions.EnableWebSearch)
         {
-            if (!string.IsNullOrEmpty(update.Text))
+            // Default path — streams exactly as before this feature existed.
+            var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+            await foreach (var update in _chatClient.GetStreamingResponseAsync(promptMessages, chatOptions, cancellationToken)
+                .ConfigureAwait(false))
             {
-                yield return new AnswerToken { Text = update.Text, IsFinal = false };
+                if (!string.IsNullOrEmpty(update.Text))
+                {
+                    yield return new AnswerToken { Text = update.Text, IsFinal = false };
+                }
             }
+        }
+        else
+        {
+            // See AnswerUseCase's class doc comment "Web search fallback"
+            // section — same reasoning applies here: whether to retry with
+            // web results can only be decided once the complete answer is
+            // known, so this can't stream token-by-token. Uses
+            // retrievalQuery (the reformulated one, when reformulation
+            // ran) for the web search too — a vague follow-up should
+            // search the web for what it actually means, not its literal
+            // wording, same reason ReformulateQueryAsync exists at all.
+            var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+            var answerText = await BufferedGeneration
+                .GenerateAsync(_chatClient, promptMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (string.Equals(answerText.Trim(), GroundedAnswer.NoAnswerSentence, StringComparison.Ordinal))
+            {
+                var webCitations = await WebSearchFallback
+                    .TryWebSearchAsync(retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (webCitations.Count > 0)
+                {
+                    citations = webCitations;
+                    var retryMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+                    answerText = await BufferedGeneration
+                        .GenerateAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            // Already computed — emit it as one burst rather than faking a
+            // token-by-token delay for text that's sitting right there.
+            yield return new AnswerToken { Text = answerText, IsFinal = false };
         }
 
         yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };
@@ -310,7 +364,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         }
     }
 
-    private static List<ChatMessage> BuildPrompt(
+    private List<ChatMessage> BuildPrompt(
         IReadOnlyList<ChatMessageEntry> priorMessages,
         string currentMessage,
         string retrievalQuery,
@@ -358,8 +412,12 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         // context (pronouns, follow-ups) without re-sending past citations
         // (Microsoft.Extensions.AI's ChatMessage has nowhere clean to carry
         // them, and the model doesn't need earlier citations to answer the
-        // current question — only the current context block below).
-        foreach (var entry in priorMessages)
+        // current question — only the current context block below). Bounded
+        // by ConversationHistoryBudget, not sent in full — see its doc
+        // comment for the real bug an unbounded version of this loop caused.
+        var reservedChars = SystemPrompt.Length + context.Length + currentMessage.Length + ReservedNonHistoryChars;
+        var boundedHistory = ConversationHistoryBudget.Trim(priorMessages, _chatModelOptions.ContextSize, reservedChars);
+        foreach (var entry in boundedHistory)
         {
             messages.Add(new ChatMessage(
                 entry.Role == ChatMessageRole.User ? ChatRole.User : ChatRole.Assistant,

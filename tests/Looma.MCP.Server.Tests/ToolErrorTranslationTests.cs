@@ -23,4 +23,20 @@ public class ToolErrorTranslationTests
         Assert.Equal(source.Message, translated.Message);
         Assert.Same(source, translated.InnerException);
     }
+
+    [Fact]
+    public void Translate_TimeoutException_PreservesMessageAndInnerException()
+    {
+        var source = new TimeoutException("Answer generation did not complete within 90s.");
+
+        var translated = ToolErrorTranslation.Translate(source);
+
+        // Same reasoning as the VectorStoreUnavailableException case above —
+        // without this, a buffered-generation timeout crossed MCP as a bare
+        // "An error occurred invoking 'looma_chat'" with zero detail
+        // (a real, reproduced case, not a hypothetical one).
+        Assert.IsType<McpException>(translated);
+        Assert.Equal(source.Message, translated.Message);
+        Assert.Same(source, translated.InnerException);
+    }
 }

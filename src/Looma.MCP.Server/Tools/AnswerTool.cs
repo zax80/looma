@@ -67,6 +67,10 @@ public static class AnswerTool
         {
             throw ToolErrorTranslation.Translate(ex);
         }
+        catch (TimeoutException ex)
+        {
+            throw ToolErrorTranslation.Translate(ex);
+        }
 
         if (citations is null || citations.Count == 0)
         {

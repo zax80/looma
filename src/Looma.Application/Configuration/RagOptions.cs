@@ -153,20 +153,32 @@ public sealed class RagOptions
     public bool EnableQueryReformulation { get; set; } = true;
 
     /// <summary>
-    /// Whether a query that finds nothing in the local <c>documents</c>
-    /// collection falls back to a web search (see
-    /// <c>WebSearchFallback</c>/<see cref="Looma.Core.Abstractions.IWebSearchProvider"/>)
-    /// instead of answering "the provided context does not contain this
-    /// information" outright. Off by default, its own separate toggle from
-    /// every other RAG behavior here — unlike query reformulation or
-    /// adaptive thresholding, this one depends on an external service (a
-    /// self-hosted SearXNG instance, see docs/config-reference.md's
-    /// WebSearch section) the user has to actually set up first, so
-    /// defaulting it on would silently start making network calls for
-    /// installs that never asked for it. The trigger itself is
-    /// deterministic (zero local citations, not a model decision) — same
-    /// "don't make the model decide something code can decide instead"
-    /// reasoning as <see cref="Looma.Application.DocumentGeneration.DocumentGenerationIntentDetector"/>.
+    /// Whether a local-only answer that comes back as a refusal
+    /// (<see cref="Looma.Application.GroundedAnswer.NoAnswerSentence"/>)
+    /// triggers a web search and a second generation pass using the web
+    /// results (see <c>WebSearchFallback</c>/
+    /// <see cref="Looma.Core.Abstractions.IWebSearchProvider"/>), instead of
+    /// answering "the provided context does not contain this information"
+    /// outright. Off by default — its own separate toggle from every other
+    /// RAG behavior here, since it makes outbound network calls (to
+    /// DuckDuckGo's HTML search page, no API key or separate service to
+    /// run — see docs/config-reference.md's WebSearch section) that an
+    /// install never explicitly asked for shouldn't happen silently.
+    ///
+    /// The trigger is "the answer was a refusal," decided AFTER a first
+    /// generation attempt completes — NOT "zero local citations," which is
+    /// what this originally checked and was a real bug caught in live
+    /// testing: with <see cref="EnableAdaptiveThreshold"/> on, local
+    /// retrieval routinely returns SOME citations for almost any query (a
+    /// handful of weakly-scoring, ultimately irrelevant chunks is the
+    /// common case), so "zero citations" essentially never happened and the
+    /// fallback almost never fired even when the model correctly refused to
+    /// use what it had. Because this can only be decided once a complete
+    /// answer exists, turning this on trades away live token-by-token
+    /// streaming for the affected turn — see AnswerUseCase's and
+    /// ChatCompletionUseCase's class doc comments for the "Web search
+    /// fallback" section each has, including <see cref="WebSearchGenerationTimeoutSeconds"/>'s
+    /// role in that trade-off.
     /// </summary>
     public bool EnableWebSearch { get; set; } = false;
 
@@ -179,4 +191,24 @@ public sealed class RagOptions
     /// retrieval's relevance-score filtering to thin it out.
     /// </summary>
     public int WebSearchMaxResults { get; set; } = 3;
+
+    /// <summary>
+    /// Hard wall-clock cap, in seconds, on each non-streaming
+    /// (<c>IChatClient.GetResponseAsync</c>) generation call made when
+    /// <see cref="EnableWebSearch"/> is on. A real, reproduced gap this
+    /// closes: unlike streaming, a buffered call shows nothing at all until
+    /// it completes — a local model that falls into a token-repetition
+    /// loop (a known small-model failure mode, more likely with
+    /// <see cref="MaxAnswerTokens"/> left uncapped) previously would still
+    /// stream visibly forever, at least giving the user something to
+    /// notice and cancel; buffered, it instead just leaves the UI's
+    /// "thinking" state spinning indefinitely with zero visible sign
+    /// anything is wrong. This timeout turns that silent hang into a real,
+    /// surfaced failure instead — see <c>BufferedGeneration</c> for why it
+    /// throws <see cref="TimeoutException"/> rather than a plain
+    /// <see cref="OperationCanceledException"/>. 90s is a generous default
+    /// for local CPU/GPU inference of a full answer; lower it if you'd
+    /// rather fail fast.
+    /// </summary>
+    public int WebSearchGenerationTimeoutSeconds { get; set; } = 90;
 }

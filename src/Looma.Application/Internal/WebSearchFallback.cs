@@ -5,41 +5,44 @@ using Looma.Core.Entities;
 namespace Looma.Application.Internal;
 
 /// <summary>
-/// The "local retrieval found nothing, try the web instead" step shared by
+/// The "ask the web instead" step shared by
 /// <see cref="Looma.Application.UseCases.AnswerUseCase"/> and
 /// <see cref="Looma.Application.UseCases.ChatCompletionUseCase"/> — same
 /// extraction reasoning as <see cref="RagRetrieval"/>: one place decides
 /// how a web result becomes a citation, so the two use cases can't
-/// silently drift apart on it. Deliberately a SEPARATE helper from
-/// <see cref="RagRetrieval"/> rather than folded into it — AnswerUseCase's
-/// own retrieval call doesn't go through <see cref="RagRetrieval"/> at all
-/// (see that class's doc comment), so a shared step both use cases can call
-/// AFTER their own already-verified retrieval, without either one having to
-/// adopt the other's retrieval shape, is the lower-risk seam.
+/// silently drift apart on it.
 ///
-/// The trigger is deterministic — zero local citations, not a model
-/// decision — see <see cref="RagOptions.EnableWebSearch"/>'s doc comment
-/// for why.
+/// Called by the use case AFTER a first, local-only generation attempt
+/// comes back as a refusal (<see cref="GroundedAnswer.NoAnswerSentence"/>)
+/// — NOT gated on local retrieval returning zero citations, which is what
+/// this originally did and was a real bug caught in live testing: local
+/// retrieval (especially with <see cref="RagOptions.EnableAdaptiveThreshold"/>
+/// on) routinely returns SOME citations for almost any query — a handful
+/// of weakly-scoring, ultimately irrelevant chunks is the common case, not
+/// the exception — so "zero citations" essentially never happened, and
+/// this fallback almost never fired even when it should have. Asking
+/// "did the model actually answer, or refuse?" is the correct signal for
+/// "was anything usable found," not "was the citations list non-empty."
 /// </summary>
 internal static class WebSearchFallback
 {
     /// <summary>
-    /// Returns <paramref name="localCitations"/> unchanged whenever it's
-    /// non-empty, web search is disabled, or the web search itself finds
-    /// nothing/fails (see <see cref="IWebSearchProvider"/>'s fail-closed
-    /// contract — this method never throws on the caller's behalf for a
-    /// web search failure, only for a genuine cancellation).
+    /// Returns an empty list whenever web search is disabled or the
+    /// search itself finds nothing/fails (see <see cref="IWebSearchProvider"/>'s
+    /// fail-closed contract — this method never throws on the caller's
+    /// behalf for a web search failure, only for a genuine cancellation).
+    /// The caller decides what to do with an empty result (typically: keep
+    /// the original refusal).
     /// </summary>
-    public static async Task<List<DocumentChunk>> AugmentIfEmptyAsync(
-        List<DocumentChunk> localCitations,
+    public static async Task<List<DocumentChunk>> TryWebSearchAsync(
         string query,
         RagOptions ragOptions,
         IWebSearchProvider webSearchProvider,
         CancellationToken cancellationToken)
     {
-        if (localCitations.Count > 0 || !ragOptions.EnableWebSearch)
+        if (!ragOptions.EnableWebSearch)
         {
-            return localCitations;
+            return [];
         }
 
         var results = await webSearchProvider
@@ -48,7 +51,7 @@ internal static class WebSearchFallback
 
         if (results.Count == 0)
         {
-            return localCitations;
+            return [];
         }
 
         var indexedAt = DateTimeOffset.UtcNow;

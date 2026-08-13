@@ -16,6 +16,23 @@ namespace Looma.Application.UseCases;
 /// context, and stream the response token by token. Citations (the chunks
 /// that were actually retrieved) are attached to the final token rather
 /// than duplicated onto every one.
+///
+/// Web search fallback: when <see cref="RagOptions.EnableWebSearch"/> is
+/// on, a local-only answer that comes back as a refusal
+/// (<see cref="GroundedAnswer.NoAnswerSentence"/>) triggers a web search
+/// and a second generation pass using the web results instead. This can
+/// only be decided AFTER a complete answer exists — there's no way to know
+/// mid-stream whether the model is about to refuse — so turning
+/// <c>EnableWebSearch</c> on trades away live token-by-token streaming for
+/// this use case: the answer is generated fully, then emitted as one
+/// burst, same as an <see cref="IAnswerCache"/> hit already does. With
+/// <c>EnableWebSearch</c> off (the default), nothing changes — this still
+/// streams exactly as before. See <c>WebSearchFallback</c>'s doc comment
+/// for why the trigger is "the answer was a refusal," not "retrieval
+/// returned zero citations" (a real, reproduced bug: local retrieval with
+/// adaptive thresholding on almost always returns SOME citations, just
+/// often not usable ones — "zero citations" essentially never happened in
+/// testing, so that gate never fired even when it should have).
 /// </summary>
 public sealed class AnswerUseCase : IAnswerUseCase
 {
@@ -135,18 +152,6 @@ public sealed class AnswerUseCase : IAnswerUseCase
         }
         timer.Mark("retrieve context chunks");
 
-        // See WebSearchFallback's doc comment — a no-op unless local
-        // retrieval above found nothing AND RagOptions.EnableWebSearch is
-        // on. Uses the literal question, same as retrieval above (no query
-        // reformulation exists at this layer — that's chat-only, see
-        // ChatCompletionUseCase).
-        citations = await WebSearchFallback
-            .AugmentIfEmptyAsync(citations, question, _ragOptions, _webSearchProvider, cancellationToken)
-            .ConfigureAwait(false);
-        timer.Mark("web search fallback");
-
-        var messages = BuildPrompt(question, citations);
-
         // Low temperature by default: this is grounded RAG Q&A, not creative
         // writing — a lower temperature measurably reduces the model's
         // tendency to elaborate beyond the given context. MaxOutputTokens is
@@ -158,28 +163,70 @@ public sealed class AnswerUseCase : IAnswerUseCase
             chatOptions.MaxOutputTokens = maxTokens;
         }
 
-        var fullAnswer = new StringBuilder();
-        var firstTokenMarked = false;
-        await foreach (var update in _chatClient.GetStreamingResponseAsync(messages, chatOptions, cancellationToken)
-            .ConfigureAwait(false))
-        {
-            if (!string.IsNullOrEmpty(update.Text))
-            {
-                if (!firstTokenMarked)
-                {
-                    timer.Mark("time to first token");
-                    firstTokenMarked = true;
-                }
+        string fullAnswerText;
 
-                fullAnswer.Append(update.Text);
-                yield return new AnswerToken { Text = update.Text, IsFinal = false };
+        if (!_ragOptions.EnableWebSearch)
+        {
+            // Default path — streams exactly as before this feature existed.
+            var messages = BuildPrompt(question, citations);
+            var fullAnswer = new StringBuilder();
+            var firstTokenMarked = false;
+            await foreach (var update in _chatClient.GetStreamingResponseAsync(messages, chatOptions, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                if (!string.IsNullOrEmpty(update.Text))
+                {
+                    if (!firstTokenMarked)
+                    {
+                        timer.Mark("time to first token");
+                        firstTokenMarked = true;
+                    }
+
+                    fullAnswer.Append(update.Text);
+                    yield return new AnswerToken { Text = update.Text, IsFinal = false };
+                }
             }
+            timer.Mark("chat generation complete");
+            fullAnswerText = fullAnswer.ToString();
         }
-        timer.Mark("chat generation complete");
+        else
+        {
+            // See the class doc comment's "Web search fallback" section for
+            // why this can't stream: whether to retry with web results can
+            // only be decided once the complete answer is known.
+            var messages = BuildPrompt(question, citations);
+            fullAnswerText = await BufferedGeneration
+                .GenerateAsync(_chatClient, messages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                .ConfigureAwait(false);
+            timer.Mark("chat generation complete (buffered)");
+
+            if (string.Equals(fullAnswerText.Trim(), GroundedAnswer.NoAnswerSentence, StringComparison.Ordinal))
+            {
+                var webCitations = await WebSearchFallback
+                    .TryWebSearchAsync(question, _ragOptions, _webSearchProvider, cancellationToken)
+                    .ConfigureAwait(false);
+                timer.Mark("web search fallback");
+
+                if (webCitations.Count > 0)
+                {
+                    citations = webCitations;
+                    var retryMessages = BuildPrompt(question, citations);
+                    fullAnswerText = await BufferedGeneration
+                        .GenerateAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                        .ConfigureAwait(false);
+                    timer.Mark("web-augmented regeneration complete");
+                }
+            }
+
+            // Already computed — emit it as one burst rather than faking a
+            // token-by-token delay for text that's sitting right there,
+            // same as an IAnswerCache hit above.
+            yield return new AnswerToken { Text = fullAnswerText, IsFinal = false };
+        }
 
         yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };
 
-        await _answerCache.StoreAsync(question, queryEmbedding, fullAnswer.ToString(), citations, documentsVersion, cancellationToken)
+        await _answerCache.StoreAsync(question, queryEmbedding, fullAnswerText, citations, documentsVersion, cancellationToken)
             .ConfigureAwait(false);
         timer.Mark("store cache");
     }

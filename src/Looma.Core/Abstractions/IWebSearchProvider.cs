@@ -17,12 +17,15 @@ namespace Looma.Core.Abstractions;
 /// nothing to stream.
 ///
 /// A single implementation is expected at a time (see
-/// <c>Looma.Infrastructure.WebSearch.SearXng</c>'s
-/// <c>SearXngWebSearchProvider</c>), same "one implementation, no
+/// <c>Looma.Infrastructure.WebSearch.DuckDuckGo</c>'s
+/// <c>DuckDuckGoWebSearchProvider</c>), same "one implementation, no
 /// hand-rolled abstraction gymnastics" spirit as <see cref="IVectorStore"/>
 /// — this interface exists so <c>Looma.Application</c> never references an
 /// Infrastructure.* project directly (CLAUDE.md rule 1), not to support
-/// swappable providers day one.
+/// swappable providers day one. (An earlier version of this used a
+/// self-hosted SearXNG instance instead — swapped out for a zero-extra-
+/// process, zero-API-key approach; see DuckDuckGoWebSearchProvider's doc
+/// comment for the trade-offs that came with it.)
 /// </summary>
 public interface IWebSearchProvider
 {

@@ -24,7 +24,26 @@ public sealed class ModelEndpointOptions
     public string Provider { get; set; } = "Ollama";
     public string Endpoint { get; set; } = "http://localhost:11434";
     public string Model { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The context window (in tokens) <see cref="Model"/> actually has.
+    /// Looma doesn't — and, per a real provider-endpoint limitation hit
+    /// with Ollama's OpenAI-compatible surface, in general can't reliably —
+    /// tell the serving model to USE a given window per request; what this
+    /// value is actually for is letting Looma bound how much conversation
+    /// history it sends in the first place, so a long session can never
+    /// silently exceed whatever window the model really has. See
+    /// <c>Looma.Application.Internal.ConversationHistoryBudget</c> — the
+    /// generic, provider-agnostic fix for a real, reproduced bug (a long
+    /// chat session's accumulated history exceeded the model's real
+    /// window, and every subsequent turn broke, including ones on a
+    /// totally unrelated topic, because nothing was trimming what got
+    /// sent). Left null, no trimming happens — fine for a model whose
+    /// context comfortably exceeds any conversation you'll realistically
+    /// have, risky otherwise.
+    /// </summary>
     public int? ContextSize { get; set; }
+
     public int? Dimensions { get; set; }
 
     /// <summary>Only meaningful for <c>Local.*</c> providers (Whisper, CLIP) — not used by the chat/embedding path.</summary>

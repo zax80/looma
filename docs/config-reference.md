@@ -51,7 +51,7 @@ does. Every `Models.*` entry shares this shape:
 | `Provider` | `"Ollama"` for chat/embedding/vision models, `"Local.OnnxClip"` for `ImageEmbeddingModel`, `"Local.Whisper"` for `SpeechToTextModel`. |
 | `Endpoint` | Ollama-only. Must pass the `Security.AllowedInferenceHosts` check (see below) or DI registration fails outright. |
 | `Model` | Ollama-only — the model tag to pull/use (e.g. `"qwen3:8b"`). |
-| `ContextSize` | Ollama-only, optional. |
+| `ContextSize` | `BaseModel` only, optional — the model's real context window in tokens. Doesn't configure the model itself (Looma can't reliably set that per request); instead it bounds how much prior conversation `looma chat` sends on each turn, dropping the oldest turns first once the total would exceed it. Left unset, no trimming happens. |
 | `Dimensions` | Embedding vector size — `768` for `EmbeddingModel` (nomic-embed-text), `512` for `ImageEmbeddingModel` (CLIP ViT-B/32). Used to size the Qdrant collection. |
 | `DisableThinking` | `BaseModel` only. `true` by default — suppresses Qwen3's hidden chain-of-thought pass, since `answer` is grounded Q&A, not open-ended reasoning. |
 | `ModelPath` | `Local.*` providers only — where the model file lives on disk (relative paths resolve against the working directory). |
@@ -94,45 +94,55 @@ pub/sub, cache), not implemented in any milestone so far.
 
 ```json
 "WebSearch": {
-  "Endpoint": "http://localhost:8080",
+  "Endpoint": "https://html.duckduckgo.com",
   "TimeoutSeconds": 10
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `Endpoint` | A self-hosted [SearXNG](https://docs.searxng.org/) instance's base URL. **Its `json` output format must be enabled** — SearXNG only serves HTML by default; add `search: { formats: [html, json] }` to its `settings.yml` and restart, or `SearXngWebSearchProvider` gets HTML back and treats it as "no results" rather than failing loudly (see below). |
+| `Endpoint` | DuckDuckGo's own HTML results page. No account, no API key, nothing to run separately. Overridable only if DuckDuckGo ever blocks requests from your network and you want to point this at a mirror/proxy. |
 | `TimeoutSeconds` | HTTP timeout for the search call. |
 
 **Connection details only** — whether this is ever actually used is
 `RAG.EnableWebSearch` below, a separate toggle. This section is always
 bound and `IWebSearchProvider` is always registered regardless of that
-flag, or of whether a SearXNG instance is even running: `SearXngWebSearchProvider`
-fails closed to an empty result list on any connectivity or parsing
-failure rather than throwing (unlike `VectorStore`/Qdrant, which fails
-loudly — see `docs/mcp-server.md`'s "Qdrant unreachable" section). That
-asymmetry is deliberate: Qdrant is the primary retrieval path, web search
-is an opt-in fallback for when it already came up empty, so a broken or
-unconfigured search backend should degrade to "no web results either,"
-not break the turn.
+flag: `DuckDuckGoWebSearchProvider` fails closed to an empty result list
+on any connectivity or parsing failure rather than throwing (unlike
+`VectorStore`/Qdrant, which fails loudly — see `docs/mcp-server.md`'s
+"Qdrant unreachable" section). That asymmetry is deliberate: Qdrant is
+the primary retrieval path, web search is an opt-in fallback for when it
+already came up empty, so a broken or blocked search backend should
+degrade to "no web results either," not break the turn.
 
-Quick local setup:
+**How this actually works, and its real limits.** DuckDuckGo has no
+official public web-search API — `api.duckduckgo.com`'s "Instant Answer"
+API only returns definition/disambiguation-style boxes for a narrow set
+of queries, not ranked results for an arbitrary question. Getting real
+web results without an API key means fetching and parsing the same HTML
+page a browser gets, which is what `DuckDuckGoWebSearchProvider` does
+(plain `HttpClient`, no HTML-parsing library — see the project's own
+`.csproj` comment for why: this was built specifically to avoid adding
+*any* new dependency, library or hosted API, for web search). That
+carries two real, inherent caveats, independent of how carefully the
+parsing code is written:
 
-```bash
-docker run -d -p 8080:8080 \
-  -v ./searxng-settings.yml:/etc/searxng/settings.yml:ro \
-  -e SEARXNG_BASE_URL=http://localhost:8080 \
-  searxng/searxng
-```
+- **Unofficial and unversioned.** DuckDuckGo can change this page's
+  markup at any time with no notice, which would break the regex-based
+  parser in `Internal/DuckDuckGoResultParser.cs` until it's updated
+  against the new markup.
+- **Rate-limited/throttled for automated-looking traffic.** Frequent
+  requests may get throttled or blocked outright — there's no quota to
+  buy your way past this, unlike a paid search API.
 
-where `searxng-settings.yml` includes at least:
-
-```yaml
-search:
-  formats:
-    - html
-    - json
-```
+Because of the first point, this was implemented against DuckDuckGo's
+long-documented (years-stable) result markup but could not be verified
+against a live response — the sandbox this was built in has no outbound
+access to duckduckgo.com. If `RAG.EnableWebSearch` is on and web results
+never show up despite the local index genuinely having nothing relevant,
+check whether `DuckDuckGoWebSearchProvider.SearchAsync` is getting a
+non-200 response (blocked) or a 200 with zero results parsed out of it
+(markup drift) — the fix differs.
 
 ## `Mcp`
 
@@ -201,7 +211,7 @@ indexed — it won't.
 | `AdaptiveFloorScore` | The floor `EnableAdaptiveThreshold` searches against instead of `MinRelevanceScore` — deliberately lower (but still above the observed 0.44-0.50 false-positive band, see `MinRelevanceScore` above) so a hard query's true positive is still fetched as a candidate; `AdaptiveThresholdMargin` then decides whether it's actually kept. Ignored when `EnableAdaptiveThreshold` is `false`. |
 | `AdaptiveThresholdMargin` | How far below the best-scoring candidate a runner-up can fall and still be kept, when `EnableAdaptiveThreshold` is on. Reasoned starting point (0.15), not measured-optimal — same "validate with `looma search` before tuning further" caveat as `MinRelevanceScore`. |
 | `AnswerTemperature` | Chat sampling temperature for `answer`. Low (`0.1`) by default, deliberately — grounded Q&A should stick to the provided context, not free-associate. |
-| `EnableWebSearch` | Both `answer` and chat. `false` by default (opt-in — depends on `WebSearch.Endpoint` actually being a running SearXNG instance, see above). When `true`, a query that finds zero citations in the local `documents` collection falls back to a web search instead of answering "the provided context does not contain this information" outright — deterministic (triggered by zero local citations, not a model decision), see `WebSearchFallback`'s doc comment. Web results are cited the same way as document chunks, just with a URL instead of a line range. |
+| `EnableWebSearch` | Both `answer` and chat. `false` by default (opt-in — see the `WebSearch` section above for what this actually does under the hood and its real caveats). When `true`, a query that finds zero citations in the local `documents` collection falls back to a web search instead of answering "the provided context does not contain this information" outright — deterministic (triggered by zero local citations, not a model decision), see `WebSearchFallback`'s doc comment. Web results are cited the same way as document chunks, just with a URL instead of a line range. |
 | `WebSearchMaxResults` | How many web results to fold into the context when the fallback above triggers. Deliberately smaller than `TopK` — this fills a gap in the local index, not competing with it on breadth. |
 
 ## `AnswerCache`
