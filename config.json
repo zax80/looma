@@ -95,7 +95,10 @@
     "AdaptiveFloorScore": 0.40,
     "AdaptiveThresholdMargin": 0.15,
     "EnableWebSearch": true,
-    "WebSearchMaxResults": 3
+    "WebSearchMaxResults": 3,
+    "WebSearchGenerationTimeoutSeconds": 180,
+    "EnableHybridSearch": true,
+    "HybridRelevanceRatio": 0.5
   },
   "AnswerCache": {
     "Enabled": true,

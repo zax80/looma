@@ -20,19 +20,36 @@ namespace Looma.Application.UseCases;
 /// Web search fallback: when <see cref="RagOptions.EnableWebSearch"/> is
 /// on, a local-only answer that comes back as a refusal
 /// (<see cref="GroundedAnswer.NoAnswerSentence"/>) triggers a web search
-/// and a second generation pass using the web results instead. This can
-/// only be decided AFTER a complete answer exists — there's no way to know
-/// mid-stream whether the model is about to refuse — so turning
-/// <c>EnableWebSearch</c> on trades away live token-by-token streaming for
-/// this use case: the answer is generated fully, then emitted as one
-/// burst, same as an <see cref="IAnswerCache"/> hit already does. With
-/// <c>EnableWebSearch</c> off (the default), nothing changes — this still
-/// streams exactly as before. See <c>WebSearchFallback</c>'s doc comment
-/// for why the trigger is "the answer was a refusal," not "retrieval
-/// returned zero citations" (a real, reproduced bug: local retrieval with
-/// adaptive thresholding on almost always returns SOME citations, just
-/// often not usable ones — "zero citations" essentially never happened in
-/// testing, so that gate never fired even when it should have).
+/// and a second generation pass using the web results instead. Deciding
+/// this needs the complete answer text — there's no way to know mid-stream
+/// whether the model is about to refuse — but that no longer means
+/// buffering the whole thing before showing anything: <c>RefusalPrefixWatcher</c>
+/// buffers only enough streamed text to tell whether it could still become
+/// the exact refusal sentence, releasing everything else live as it
+/// arrives. In practice this means a real answer (the common case) streams
+/// close to normally; only an actual refusal pays a brief wait, bounded by
+/// the refusal sentence's own short, fixed length — not the whole answer.
+///
+/// <see cref="RetrievalConfidence"/> (from citation count, BEFORE
+/// generation starts) adds two further optimizations on top of that:
+/// zero citations skips local generation entirely and goes straight to a
+/// web search (nothing local to even try), and a thin candidate pool
+/// starts the web search speculatively, in parallel with local generation,
+/// so if it does turn out to be needed the results are likely already
+/// back. Neither of these decides whether the fallback fires — that's
+/// still always <c>RefusalPrefixWatcher</c>'s job, per <c>WebSearchFallback</c>'s
+/// doc comment on why a citation-based trigger was tried once already and
+/// found unreliable (adaptive thresholding routinely leaves a few weak
+/// citations around even for genuinely unanswerable questions).
+///
+/// <see cref="AnswerToken.IsStatus"/> tokens narrate the stage transitions
+/// this creates ("Generating answer...", "No local match found — searching
+/// the web...") — real progress, not a fake placeholder, since a consumer
+/// can no longer assume the FIRST non-final token it sees is answer
+/// content the moment <c>EnableWebSearch</c> is on.
+///
+/// With <c>EnableWebSearch</c> off (the default), none of this applies —
+/// this still streams exactly as before that feature existed.
 /// </summary>
 public sealed class AnswerUseCase : IAnswerUseCase
 {
@@ -137,19 +154,38 @@ public sealed class AnswerUseCase : IAnswerUseCase
             yield break;
         }
 
-        var citations = new List<DocumentChunk>();
+        // See RagOptions.EnableHybridSearch's doc comment — MinRelevanceScore
+        // is ignored server-side once a query is hybrid (dense+BM25 fused
+        // via RRF), harmless to still pass. Collected into a list first
+        // (rather than mapped to DocumentChunk directly, as before) because
+        // the hybrid path needs RagRetrieval.ApplyHybridRelevanceFilter
+        // applied afterward — see RagOptions.HybridRelevanceRatio's doc
+        // comment for why raw TopK alone let unrelated chunks pad the
+        // result set.
+        var rawResults = new List<VectorSearchResult>();
         await foreach (var result in _vectorStore.SearchAsync(
-            VectorCollection.Documents, queryEmbedding, _ragOptions.TopK, _ragOptions.MinRelevanceScore, cancellationToken)
+            VectorCollection.Documents,
+            queryEmbedding,
+            _ragOptions.TopK,
+            _ragOptions.MinRelevanceScore,
+            _ragOptions.EnableHybridSearch ? question : null,
+            cancellationToken)
             .ConfigureAwait(false))
         {
-            citations.Add(new DocumentChunk
-            {
-                Id = result.Id,
-                SourceId = result.Metadata.SourcePath,
-                Content = result.Content ?? string.Empty,
-                Metadata = result.Metadata
-            });
+            rawResults.Add(result);
         }
+
+        var filteredResults = _ragOptions.EnableHybridSearch
+            ? RagRetrieval.ApplyHybridRelevanceFilter(rawResults, _ragOptions)
+            : rawResults;
+
+        var citations = filteredResults.Select(result => new DocumentChunk
+        {
+            Id = result.Id,
+            SourceId = result.Metadata.SourcePath,
+            Content = result.Content ?? string.Empty,
+            Metadata = result.Metadata
+        }).ToList();
         timer.Mark("retrieve context chunks");
 
         // Low temperature by default: this is grounded RAG Q&A, not creative
@@ -191,17 +227,18 @@ public sealed class AnswerUseCase : IAnswerUseCase
         }
         else
         {
-            // See the class doc comment's "Web search fallback" section for
-            // why this can't stream: whether to retry with web results can
-            // only be decided once the complete answer is known.
-            var messages = BuildPrompt(question, citations);
-            fullAnswerText = await BufferedGeneration
-                .GenerateAsync(_chatClient, messages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
-                .ConfigureAwait(false);
-            timer.Mark("chat generation complete (buffered)");
+            // See the class doc comment's "Web search fallback" section —
+            // citation count only ever affects presentation/scheduling
+            // here, never whether the fallback actually fires.
+            var confidence = RetrievalConfidenceClassifier.Classify(citations.Count);
 
-            if (string.Equals(fullAnswerText.Trim(), GroundedAnswer.NoAnswerSentence, StringComparison.Ordinal))
+            if (confidence == RetrievalConfidence.Empty)
             {
+                yield return new AnswerToken
+                {
+                    Text = "No local match found — searching the web...", IsFinal = false, IsStatus = true
+                };
+
                 var webCitations = await WebSearchFallback
                     .TryWebSearchAsync(question, _ragOptions, _webSearchProvider, cancellationToken)
                     .ConfigureAwait(false);
@@ -210,18 +247,89 @@ public sealed class AnswerUseCase : IAnswerUseCase
                 if (webCitations.Count > 0)
                 {
                     citations = webCitations;
-                    var retryMessages = BuildPrompt(question, citations);
-                    fullAnswerText = await BufferedGeneration
-                        .GenerateAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
-                        .ConfigureAwait(false);
-                    timer.Mark("web-augmented regeneration complete");
+                }
+
+                // Still generate even if the web search also found nothing
+                // — there's no further fallback left to try, so whatever
+                // the model says now (likely the refusal sentence again,
+                // honestly this time) is the final answer.
+                var messages = BuildPrompt(question, citations);
+                var fullAnswer = new StringBuilder();
+                await foreach (var chunk in IdleTimeoutStreaming
+                    .StreamAsync(_chatClient, messages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    fullAnswer.Append(chunk);
+                    yield return new AnswerToken { Text = chunk, IsFinal = false };
+                }
+                timer.Mark("chat generation complete");
+                fullAnswerText = fullAnswer.ToString();
+            }
+            else
+            {
+                // A thin pool (Low): start the web search now, in parallel
+                // with local generation below — it's just an HTTP search,
+                // not a second full model call, so this is cheap even when
+                // it turns out not to be needed. WebSearchFallback never
+                // throws except on a genuine cancellation (see its doc
+                // comment), and a canceled-but-unawaited task doesn't
+                // trigger .NET's unobserved-exception handling, so no
+                // explicit continuation/observation is needed if this ends
+                // up discarded below.
+                var speculativeWebSearchTask = confidence == RetrievalConfidence.Low
+                    ? WebSearchFallback.TryWebSearchAsync(question, _ragOptions, _webSearchProvider, cancellationToken)
+                    : null;
+
+                yield return new AnswerToken { Text = "Generating answer...", IsFinal = false, IsStatus = true };
+
+                var messages = BuildPrompt(question, citations);
+                var outcome = new RefusalAwareGenerationOutcome();
+                await foreach (var chunk in RefusalAwareGeneration
+                    .StreamAsync(_chatClient, messages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, outcome, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    yield return new AnswerToken { Text = chunk, IsFinal = false };
+                }
+                timer.Mark("chat generation complete");
+                fullAnswerText = outcome.FullText;
+
+                if (outcome.WasRefusal)
+                {
+                    yield return new AnswerToken
+                    {
+                        Text = "No local match found — searching the web...", IsFinal = false, IsStatus = true
+                    };
+
+                    var webCitations = speculativeWebSearchTask is not null
+                        ? await speculativeWebSearchTask.ConfigureAwait(false)
+                        : await WebSearchFallback.TryWebSearchAsync(question, _ragOptions, _webSearchProvider, cancellationToken).ConfigureAwait(false);
+                    timer.Mark("web search fallback");
+
+                    if (webCitations.Count > 0)
+                    {
+                        citations = webCitations;
+                        var retryMessages = BuildPrompt(question, citations);
+                        var retryAnswer = new StringBuilder();
+                        await foreach (var chunk in IdleTimeoutStreaming
+                            .StreamAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                            .ConfigureAwait(false))
+                        {
+                            retryAnswer.Append(chunk);
+                            yield return new AnswerToken { Text = chunk, IsFinal = false };
+                        }
+                        timer.Mark("web-augmented regeneration complete");
+                        fullAnswerText = retryAnswer.ToString();
+                    }
+                    else
+                    {
+                        // No web results either — RefusalPrefixWatcher held
+                        // the refusal sentence back the whole time, so it
+                        // was never actually shown; surface it now as the
+                        // honest final answer.
+                        yield return new AnswerToken { Text = fullAnswerText, IsFinal = false };
+                    }
                 }
             }
-
-            // Already computed — emit it as one burst rather than faking a
-            // token-by-token delay for text that's sitting right there,
-            // same as an IAnswerCache hit above.
-            yield return new AnswerToken { Text = fullAnswerText, IsFinal = false };
         }
 
         yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };

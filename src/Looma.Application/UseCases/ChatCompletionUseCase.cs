@@ -125,12 +125,19 @@ namespace Looma.Application.UseCases;
 /// <see cref="RagOptions.EnableWebSearch"/> is on, a local-only answer
 /// that comes back as a refusal triggers a web search (using
 /// <c>retrievalQuery</c>, the reformulated query, not the user's literal
-/// wording) and a second generation pass using the web results. That
-/// decision can only be made after a complete answer exists, so turning
-/// <c>EnableWebSearch</c> on trades away live per-token streaming for this
-/// turn only — the answer is generated fully, then emitted as one burst.
-/// With <c>EnableWebSearch</c> off (the default), <see cref="CompleteAsync"/>
-/// streams exactly as it always has.
+/// wording) and a second generation pass using the web results. This no
+/// longer means buffering the whole answer before showing anything —
+/// <c>RefusalPrefixWatcher</c> buffers only enough streamed text to tell
+/// whether it could still become the exact refusal sentence, so a real
+/// answer streams live same as always; only an actual refusal pays a
+/// brief wait bounded by that sentence's own short, fixed length.
+/// <see cref="RetrievalConfidence"/> (from citation count) additionally
+/// skips local generation entirely when there's nothing to work with, and
+/// starts the web search speculatively, in parallel, when the candidate
+/// pool is thin — neither of those decides whether the fallback fires,
+/// only <c>RefusalPrefixWatcher</c> does that. With <c>EnableWebSearch</c>
+/// off (the default), <see cref="CompleteAsync"/> streams exactly as it
+/// always has.
 /// </summary>
 public sealed class ChatCompletionUseCase : IChatCompletionUseCase
 {
@@ -232,7 +239,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
             .ConfigureAwait(false);
 
         var citations = await RagRetrieval
-            .RetrieveCitationsAsync(_vectorStore, queryEmbedding, _ragOptions, cancellationToken)
+            .RetrieveCitationsAsync(_vectorStore, queryEmbedding, retrievalQuery, _ragOptions, cancellationToken)
             .ConfigureAwait(false);
 
         var chatOptions = new ChatOptions { Temperature = _ragOptions.AnswerTemperature };
@@ -256,21 +263,22 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         }
         else
         {
-            // See AnswerUseCase's class doc comment "Web search fallback"
-            // section — same reasoning applies here: whether to retry with
-            // web results can only be decided once the complete answer is
-            // known, so this can't stream token-by-token. Uses
+            // See the class doc comment's "Web search fallback" section —
+            // citation count only ever affects presentation/scheduling
+            // here, never whether the fallback actually fires. Uses
             // retrievalQuery (the reformulated one, when reformulation
-            // ran) for the web search too — a vague follow-up should
-            // search the web for what it actually means, not its literal
-            // wording, same reason ReformulateQueryAsync exists at all.
-            var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
-            var answerText = await BufferedGeneration
-                .GenerateAsync(_chatClient, promptMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
-                .ConfigureAwait(false);
+            // ran) for the web search — a vague follow-up should search
+            // the web for what it actually means, not its literal wording,
+            // same reason ReformulateQueryAsync exists at all.
+            var confidence = RetrievalConfidenceClassifier.Classify(citations.Count);
 
-            if (string.Equals(answerText.Trim(), GroundedAnswer.NoAnswerSentence, StringComparison.Ordinal))
+            if (confidence == RetrievalConfidence.Empty)
             {
+                yield return new AnswerToken
+                {
+                    Text = "No local match found — searching the web...", IsFinal = false, IsStatus = true
+                };
+
                 var webCitations = await WebSearchFallback
                     .TryWebSearchAsync(retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken)
                     .ConfigureAwait(false);
@@ -278,16 +286,71 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
                 if (webCitations.Count > 0)
                 {
                     citations = webCitations;
-                    var retryMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
-                    answerText = await BufferedGeneration
-                        .GenerateAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
-                        .ConfigureAwait(false);
+                }
+
+                // Still generate even if the web search also found nothing
+                // — no further fallback left to try.
+                var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+                await foreach (var chunk in IdleTimeoutStreaming
+                    .StreamAsync(_chatClient, promptMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    yield return new AnswerToken { Text = chunk, IsFinal = false };
                 }
             }
+            else
+            {
+                // A thin pool (Low): start the web search now, in parallel
+                // with local generation below — cheap (an HTTP search, not
+                // a second full model call) even when it turns out not to
+                // be needed. See AnswerUseCase's identical comment for why
+                // an abandoned, unawaited task here is safe.
+                var speculativeWebSearchTask = confidence == RetrievalConfidence.Low
+                    ? WebSearchFallback.TryWebSearchAsync(retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken)
+                    : null;
 
-            // Already computed — emit it as one burst rather than faking a
-            // token-by-token delay for text that's sitting right there.
-            yield return new AnswerToken { Text = answerText, IsFinal = false };
+                yield return new AnswerToken { Text = "Generating answer...", IsFinal = false, IsStatus = true };
+
+                var promptMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+                var outcome = new RefusalAwareGenerationOutcome();
+                await foreach (var chunk in RefusalAwareGeneration
+                    .StreamAsync(_chatClient, promptMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, outcome, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    yield return new AnswerToken { Text = chunk, IsFinal = false };
+                }
+
+                if (outcome.WasRefusal)
+                {
+                    yield return new AnswerToken
+                    {
+                        Text = "No local match found — searching the web...", IsFinal = false, IsStatus = true
+                    };
+
+                    var webCitations = speculativeWebSearchTask is not null
+                        ? await speculativeWebSearchTask.ConfigureAwait(false)
+                        : await WebSearchFallback.TryWebSearchAsync(retrievalQuery, _ragOptions, _webSearchProvider, cancellationToken).ConfigureAwait(false);
+
+                    if (webCitations.Count > 0)
+                    {
+                        citations = webCitations;
+                        var retryMessages = BuildPrompt(history, message, retrievalQuery, citations, attachmentContext);
+                        await foreach (var chunk in IdleTimeoutStreaming
+                            .StreamAsync(_chatClient, retryMessages, chatOptions, _ragOptions.WebSearchGenerationTimeoutSeconds, cancellationToken)
+                            .ConfigureAwait(false))
+                        {
+                            yield return new AnswerToken { Text = chunk, IsFinal = false };
+                        }
+                    }
+                    else
+                    {
+                        // No web results either — RefusalPrefixWatcher held
+                        // the refusal sentence back the whole time; surface
+                        // it now as the honest final answer.
+                        yield return new AnswerToken { Text = outcome.FullText, IsFinal = false };
+                    }
+                }
+            }
         }
 
         yield return new AnswerToken { Text = string.Empty, IsFinal = true, Citations = citations };

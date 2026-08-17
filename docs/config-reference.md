@@ -187,7 +187,10 @@ Full detail in `docs/mcp-server.md`. Summary:
   "AdaptiveFloorScore": 0.40,
   "AdaptiveThresholdMargin": 0.15,
   "EnableWebSearch": false,
-  "WebSearchMaxResults": 3
+  "WebSearchMaxResults": 3,
+  "WebSearchGenerationTimeoutSeconds": 60,
+  "EnableHybridSearch": false,
+  "HybridRelevanceRatio": 0.5
 }
 ```
 
@@ -211,8 +214,11 @@ indexed — it won't.
 | `AdaptiveFloorScore` | The floor `EnableAdaptiveThreshold` searches against instead of `MinRelevanceScore` — deliberately lower (but still above the observed 0.44-0.50 false-positive band, see `MinRelevanceScore` above) so a hard query's true positive is still fetched as a candidate; `AdaptiveThresholdMargin` then decides whether it's actually kept. Ignored when `EnableAdaptiveThreshold` is `false`. |
 | `AdaptiveThresholdMargin` | How far below the best-scoring candidate a runner-up can fall and still be kept, when `EnableAdaptiveThreshold` is on. Reasoned starting point (0.15), not measured-optimal — same "validate with `looma search` before tuning further" caveat as `MinRelevanceScore`. |
 | `AnswerTemperature` | Chat sampling temperature for `answer`. Low (`0.1`) by default, deliberately — grounded Q&A should stick to the provided context, not free-associate. |
-| `EnableWebSearch` | Both `answer` and chat. `false` by default (opt-in — see the `WebSearch` section above for what this actually does under the hood and its real caveats). When `true`, a query that finds zero citations in the local `documents` collection falls back to a web search instead of answering "the provided context does not contain this information" outright — deterministic (triggered by zero local citations, not a model decision), see `WebSearchFallback`'s doc comment. Web results are cited the same way as document chunks, just with a URL instead of a line range. |
+| `EnableWebSearch` | Both `answer` and chat. `false` by default (opt-in — see the `WebSearch` section above for what this actually does under the hood and its real caveats). When `true`, a LOCAL-ONLY answer that comes back as the refusal sentence triggers a web search and a second generation pass using the web results instead — decided by watching what the model actually generates (`RefusalPrefixWatcher`), not by citation count (see `WebSearchFallback`'s doc comment for why). Still streams live: only the refusal sentence itself (short, fixed-length) is ever briefly held back, not the whole answer. Web results are cited the same way as document chunks, just with a URL instead of a line range. |
 | `WebSearchMaxResults` | How many web results to fold into the context when the fallback above triggers. Deliberately smaller than `TopK` — this fills a gap in the local index, not competing with it on breadth. |
+| `WebSearchGenerationTimeoutSeconds` | IDLE timeout, in seconds — resets on every streamed chunk, not a total-time budget — applied to generation calls made when `EnableWebSearch` is on. See `IdleTimeoutStreaming`'s doc comment. Turns a stalled/looping local model into a visible failure instead of an indefinite silent hang, without killing a slow-but-still-producing answer. `60` by default. |
+| `EnableHybridSearch` | Both `answer` and chat. `false` by default — combines vector similarity with keyword (BM25) matching via Qdrant's Query API (Reciprocal Rank Fusion) instead of vector similarity alone, catching exact-term matches (product codes, names, acronyms) pure vector search can miss. Turning this on for the first time is a real, breaking Qdrant schema change: it recreates the `documents` collection (emptying it — re-run `looma index` afterward) and needs Qdrant 1.15.2+ for server-side BM25, checked at startup with a clear error if too old. Also disables `MinRelevanceScore`/`EnableAdaptiveThreshold` filtering for retrieval, since a fused (RRF) score isn't a cosine similarity those are calibrated against — `HybridRelevanceRatio` below replaces them. |
+| `HybridRelevanceRatio` | Only used when `EnableHybridSearch` is on. Keeps only candidates whose fused (RRF) score is at least this fraction of THAT query's own best-scoring candidate — the hybrid-search equivalent of `AdaptiveThresholdMargin`, rescaled as a ratio since RRF scores are small, k-constant-dependent fractions an absolute margin doesn't transfer to. `0.5` is a reasoned starting point, not measured-optimal. Without this, `TopK` alone bounded a hybrid result, which let unrelated low-ranked candidates pad out the result set — a real issue, not theoretical. |
 
 ## `AnswerCache`
 

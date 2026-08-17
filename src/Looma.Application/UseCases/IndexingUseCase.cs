@@ -111,9 +111,13 @@ public sealed class IndexingUseCase : IIndexingUseCase
             await _vectorStore.ClearCollectionAsync(VectorCollection.Images, cancellationToken).ConfigureAwait(false);
         }
 
-        await _vectorStore.EnsureCollectionAsync(VectorCollection.Documents, _embeddingModelOptions.Dimensions, cancellationToken)
+        // Hybrid search only ever applies to Documents — Images holds CLIP
+        // vectors for image-similarity search, a different use case with no
+        // meaningful BM25 keyword text to fuse against.
+        await _vectorStore.EnsureCollectionAsync(
+            VectorCollection.Documents, _embeddingModelOptions.Dimensions, _ragOptions.EnableHybridSearch, cancellationToken)
             .ConfigureAwait(false);
-        await _vectorStore.EnsureCollectionAsync(VectorCollection.Images, _imageEmbeddingModelOptions.Dimensions, cancellationToken)
+        await _vectorStore.EnsureCollectionAsync(VectorCollection.Images, _imageEmbeddingModelOptions.Dimensions, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var files = DiscoverFiles(path, recursive);
@@ -231,7 +235,8 @@ public sealed class IndexingUseCase : IIndexingUseCase
 
         if (records.Count > 0)
         {
-            await _vectorStore.UpsertAsync(VectorCollection.Documents, records, cancellationToken).ConfigureAwait(false);
+            await _vectorStore.UpsertAsync(VectorCollection.Documents, records, _ragOptions.EnableHybridSearch, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return new IndexingProgress
@@ -291,7 +296,8 @@ public sealed class IndexingUseCase : IIndexingUseCase
 
         if (textRecords.Count > 0)
         {
-            await _vectorStore.UpsertAsync(VectorCollection.Documents, textRecords, cancellationToken).ConfigureAwait(false);
+            await _vectorStore.UpsertAsync(VectorCollection.Documents, textRecords, _ragOptions.EnableHybridSearch, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         ReadOnlyMemory<float> clipEmbedding;
@@ -315,7 +321,7 @@ public sealed class IndexingUseCase : IIndexingUseCase
                 IndexedAtUtc = indexedAtUtc
             }
         };
-        await _vectorStore.UpsertAsync(VectorCollection.Images, [clipRecord], cancellationToken).ConfigureAwait(false);
+        await _vectorStore.UpsertAsync(VectorCollection.Images, [clipRecord], cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new IndexingProgress
         {
@@ -375,7 +381,8 @@ public sealed class IndexingUseCase : IIndexingUseCase
 
         if (records.Count > 0)
         {
-            await _vectorStore.UpsertAsync(VectorCollection.Documents, records, cancellationToken).ConfigureAwait(false);
+            await _vectorStore.UpsertAsync(VectorCollection.Documents, records, _ragOptions.EnableHybridSearch, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return new IndexingProgress

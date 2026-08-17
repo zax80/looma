@@ -16,7 +16,7 @@ namespace Looma.Application.Internal;
 /// broke — including ones about a totally unrelated topic — because the
 /// model was silently handed an oversized prompt and, on the local model
 /// tested against, fell into a token-repetition loop trying to generate a
-/// response at all. See <c>BufferedGeneration</c>'s doc comment for the
+/// response at all. See <c>IdleTimeoutStreaming</c>'s doc comment for the
 /// timeout that turns that failure mode into a visible error instead of a
 /// silent hang — that's a safety net; this class is the fix for the
 /// actual cause.

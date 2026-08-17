@@ -139,11 +139,17 @@ public sealed class RemoteChatUseCase : IChatUseCase
                     throw;
                 }
 
-                if (!current.IsFinal)
+                // IsStatus tokens ("Generating answer...", "No local match
+                // found — searching the web...") are progress narration,
+                // not answer content — see AnswerToken.IsStatus's doc
+                // comment. Still yielded through to the caller below
+                // (MainPage shows them), just excluded from what gets
+                // persisted as this turn's actual answer text.
+                if (!current.IsFinal && !current.IsStatus)
                 {
                     fullAnswer.Append(current.Text);
                 }
-                else
+                else if (current.IsFinal)
                 {
                     finalCitations = current.Citations;
                 }

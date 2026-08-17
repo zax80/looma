@@ -46,8 +46,13 @@ public sealed class SearchUseCase : ISearchUseCase
 
         var threshold = minRelevanceScore ?? _ragOptions.MinRelevanceScore;
 
+        // Deliberately never hybrid, even if RagOptions.EnableHybridSearch is
+        // on — this command exists specifically to show real, comparable
+        // cosine similarity scores for tuning MinRelevanceScore/adaptive
+        // thresholding (see their doc comments), which a fused RRF score
+        // isn't. `looma answer`/chat are the paths that respect the toggle.
         await foreach (var result in _vectorStore.SearchAsync(
-            collection, queryEmbedding, topK, threshold, cancellationToken).ConfigureAwait(false))
+            collection, queryEmbedding, topK, threshold, cancellationToken: cancellationToken).ConfigureAwait(false))
         {
             yield return result;
         }

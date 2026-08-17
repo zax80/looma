@@ -16,17 +16,17 @@ namespace Looma.MCP.Server.Tools;
 /// Two exception types are handled today. <see cref="VectorStoreUnavailableException"/>
 /// — see its own doc comment for the real, reproduced case that motivated
 /// this (stopping Qdrant and asking a chat question). And the plain
-/// <see cref="TimeoutException"/> <c>Looma.Application.Internal.BufferedGeneration</c>
-/// throws when a buffered (<see cref="Looma.Application.Configuration.RagOptions.EnableWebSearch"/>-on)
-/// generation call stalls — another real, reproduced case: over MCP, an
-/// untranslated one showed up client-side as a bare "An error occurred
-/// invoking 'looma_chat'" with no indication generation had actually timed
-/// out. Each tool method calls this from its own catch clause; anything
-/// not recognized here is left to propagate and fall through to the SDK's
-/// default (safe, if unhelpful) generic handling — deliberately opt-in per
-/// exception type rather than a blanket catch-and-forward, so a genuinely
-/// unexpected failure never accidentally leaks internal detail to a
-/// remote client.
+/// <see cref="TimeoutException"/> <c>Looma.Application.Internal.IdleTimeoutStreaming</c>
+/// throws when a <see cref="Looma.Application.Configuration.RagOptions.EnableWebSearch"/>-on
+/// generation call goes too long without producing any new output —
+/// another real, reproduced case: over MCP, an untranslated one showed up
+/// client-side as a bare "An error occurred invoking 'looma_chat'" with no
+/// indication generation had actually timed out. Each tool method calls
+/// this from its own catch clause; anything not recognized here is left to
+/// propagate and fall through to the SDK's default (safe, if unhelpful)
+/// generic handling — deliberately opt-in per exception type rather than a
+/// blanket catch-and-forward, so a genuinely unexpected failure never
+/// accidentally leaks internal detail to a remote client.
 /// </summary>
 public static class ToolErrorTranslation
 {

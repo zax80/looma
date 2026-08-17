@@ -165,20 +165,29 @@ public sealed class RagOptions
     /// run — see docs/config-reference.md's WebSearch section) that an
     /// install never explicitly asked for shouldn't happen silently.
     ///
-    /// The trigger is "the answer was a refusal," decided AFTER a first
-    /// generation attempt completes — NOT "zero local citations," which is
-    /// what this originally checked and was a real bug caught in live
-    /// testing: with <see cref="EnableAdaptiveThreshold"/> on, local
-    /// retrieval routinely returns SOME citations for almost any query (a
-    /// handful of weakly-scoring, ultimately irrelevant chunks is the
+    /// The trigger is "the answer was a refusal" — NOT "zero local
+    /// citations," which is what this originally checked and was a real bug
+    /// caught in live testing: with <see cref="EnableAdaptiveThreshold"/> on,
+    /// local retrieval routinely returns SOME citations for almost any query
+    /// (a handful of weakly-scoring, ultimately irrelevant chunks is the
     /// common case), so "zero citations" essentially never happened and the
     /// fallback almost never fired even when the model correctly refused to
-    /// use what it had. Because this can only be decided once a complete
-    /// answer exists, turning this on trades away live token-by-token
-    /// streaming for the affected turn — see AnswerUseCase's and
-    /// ChatCompletionUseCase's class doc comments for the "Web search
-    /// fallback" section each has, including <see cref="WebSearchGenerationTimeoutSeconds"/>'s
-    /// role in that trade-off.
+    /// use what it had. <c>RetrievalConfidenceClassifier</c> DOES also look
+    /// at citation count, but only to decide presentation/scheduling (skip a
+    /// near-certainly-futile local attempt when there are truly zero
+    /// citations; speculatively start the web search early, in parallel,
+    /// when there are only one or two) — it is never what decides whether
+    /// the final answer is accepted, which is still always the refusal
+    /// check, exactly as the live-tested fix above requires.
+    ///
+    /// Originally, deciding this required buffering the whole answer before
+    /// showing anything (a real, live-tested UX cost — see git history for
+    /// <c>BufferedGeneration</c>). It doesn't anymore:
+    /// <c>RefusalPrefixWatcher</c> buffers only enough streamed text to tell
+    /// whether it could still become the exact refusal sentence, flushing
+    /// and streaming live the moment it clearly can't — see AnswerUseCase's
+    /// and ChatCompletionUseCase's class doc comments for the "Web search
+    /// fallback" section each has.
     /// </summary>
     public bool EnableWebSearch { get; set; } = false;
 
@@ -193,22 +202,79 @@ public sealed class RagOptions
     public int WebSearchMaxResults { get; set; } = 3;
 
     /// <summary>
-    /// Hard wall-clock cap, in seconds, on each non-streaming
-    /// (<c>IChatClient.GetResponseAsync</c>) generation call made when
-    /// <see cref="EnableWebSearch"/> is on. A real, reproduced gap this
-    /// closes: unlike streaming, a buffered call shows nothing at all until
-    /// it completes — a local model that falls into a token-repetition
-    /// loop (a known small-model failure mode, more likely with
-    /// <see cref="MaxAnswerTokens"/> left uncapped) previously would still
-    /// stream visibly forever, at least giving the user something to
-    /// notice and cancel; buffered, it instead just leaves the UI's
-    /// "thinking" state spinning indefinitely with zero visible sign
-    /// anything is wrong. This timeout turns that silent hang into a real,
-    /// surfaced failure instead — see <c>BufferedGeneration</c> for why it
-    /// throws <see cref="TimeoutException"/> rather than a plain
-    /// <see cref="OperationCanceledException"/>. 90s is a generous default
-    /// for local CPU/GPU inference of a full answer; lower it if you'd
-    /// rather fail fast.
+    /// IDLE timeout, in seconds — resets on every streamed chunk, not a
+    /// total-time budget — applied to generation calls made when
+    /// <see cref="EnableWebSearch"/> is on. See <c>IdleTimeoutStreaming</c>
+    /// for the mechanism and full reasoning.
+    ///
+    /// Was originally a total-wall-clock timeout on a fully buffered
+    /// (non-streaming) call, back when <see cref="EnableWebSearch"/> traded
+    /// away live streaming entirely to make the refusal-retry decision (see
+    /// that property's doc comment for why that trade existed and how
+    /// <c>RefusalPrefixWatcher</c> now avoids it). A total-time budget
+    /// doesn't fit a live stream — a slow-but-still-producing answer
+    /// shouldn't be killed just for taking a while — so this now measures
+    /// gaps between chunks instead, which is what actually indicates a
+    /// stalled or repetition-looping model. 60s is a generous per-gap
+    /// default, including for a slow cold model load on the very first
+    /// request after starting Ollama (a real, previously observed case);
+    /// lower it if you'd rather fail fast once generation is actually
+    /// producing nothing new.
     /// </summary>
-    public int WebSearchGenerationTimeoutSeconds { get; set; } = 90;
+    public int WebSearchGenerationTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Whether local retrieval combines vector similarity with keyword
+    /// (BM25) matching, fused via Qdrant's Query API (Reciprocal Rank
+    /// Fusion), instead of vector similarity alone. Off by default — this
+    /// is a real, breaking Qdrant schema change (a named dense + named
+    /// sparse vector, not the single unnamed vector every existing
+    /// collection was created with), not something that can silently
+    /// upgrade an install in place. Turning it on the first time recreates
+    /// the <c>documents</c> collection and empties it — see
+    /// <c>QdrantVectorStore</c>'s class doc comment — so re-run indexing
+    /// afterward. Also needs Qdrant 1.15.2+ (server-side BM25); an older
+    /// instance fails clearly at startup rather than mid-query.
+    ///
+    /// Why bother: pure vector similarity can miss an exact term a
+    /// question hinges on (a product code, a person's name, an acronym)
+    /// when that term doesn't shift the embedding much relative to the
+    /// surrounding text — keyword matching catches exactly that case,
+    /// vector similarity catches paraphrases/synonyms keyword matching
+    /// would miss. Fusing both covers more than either alone.
+    ///
+    /// Real trade-off, not a strict improvement: fused (RRF) scores are
+    /// rank-based (small fractions, roughly <c>1/(60+rank)</c>), not
+    /// cosine similarity — <see cref="MinRelevanceScore"/> and
+    /// <see cref="EnableAdaptiveThreshold"/>'s math are both calibrated
+    /// against cosine scores and DON'T apply to fused results. When this
+    /// is on, <c>RagRetrieval</c>/<c>AnswerUseCase</c> skip both and use
+    /// <see cref="HybridRelevanceRatio"/> instead — see its doc comment —
+    /// which prunes candidates the same "relative to this query's best
+    /// match" way, just rescaled for RRF's math.
+    /// </summary>
+    public bool EnableHybridSearch { get; set; } = false;
+
+    /// <summary>
+    /// Hybrid-search equivalent of <see cref="AdaptiveThresholdMargin"/> —
+    /// only used when <see cref="EnableHybridSearch"/> is on. A fused (RRF)
+    /// score isn't cosine similarity (see <see cref="EnableHybridSearch"/>'s
+    /// doc comment), so an absolute margin like
+    /// <see cref="AdaptiveThresholdMargin"/> doesn't transfer: RRF scores
+    /// are tiny fractions whose exact scale depends on Qdrant's internal
+    /// <c>k</c> constant and how many prefetch legs a candidate matched.
+    /// A ratio does transfer, because it's scale-free — this keeps only
+    /// candidates whose fused score is at least this fraction of THIS
+    /// query's own top-scoring candidate, dropping the padding that
+    /// otherwise fills out <see cref="TopK"/> with whatever ranked next
+    /// however weakly (the real bug this closes: unrelated audio/image/PDF
+    /// chunks showing up as citations alongside the two genuinely relevant
+    /// ones for an unrelated query). 0.5 is a reasoned starting point, not
+    /// measured-optimal — RRF's curve is intentionally flat for lower
+    /// ranks, so this is a coarser cut than cosine-based adaptive
+    /// thresholding, not an equally precise one; tighten (raise) it if
+    /// weak matches still get through, loosen (lower) it if genuinely
+    /// relevant runners-up are getting cut.
+    /// </summary>
+    public float HybridRelevanceRatio { get; set; } = 0.5f;
 }

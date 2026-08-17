@@ -19,6 +19,22 @@ public static class AnswerCommand
 
         await foreach (var token in answerUseCase.AnswerAsync(question))
         {
+            if (token.IsStatus)
+            {
+                // A real stage transition ("Generating answer...", "No
+                // local match found — searching the web...") — see
+                // AnswerToken.IsStatus's doc comment. Printed on its own
+                // line, not concatenated via Console.Write like content:
+                // by construction (see AnswerUseCase's EnableWebSearch
+                // branch), a status token never arrives after content has
+                // already started printing for the SAME attempt — content
+                // is either live-streamed with nothing held back, or fully
+                // withheld as a refusal, never a mix — so this never has
+                // to interrupt a partially-written line.
+                Console.WriteLine(token.Text);
+                continue;
+            }
+
             if (!token.IsFinal)
             {
                 // Written as it streams in, not buffered — this is the point

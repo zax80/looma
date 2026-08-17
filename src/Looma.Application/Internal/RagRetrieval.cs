@@ -23,6 +23,7 @@ internal static class RagRetrieval
     public static async Task<List<DocumentChunk>> RetrieveCitationsAsync(
         IVectorStore vectorStore,
         ReadOnlyMemory<float> queryEmbedding,
+        string queryText,
         RagOptions ragOptions,
         CancellationToken cancellationToken)
     {
@@ -31,21 +32,36 @@ internal static class RagRetrieval
         // candidate is still fetched — ApplyAdaptiveThreshold below decides
         // whether it's actually kept. With it off, behave exactly as
         // before: search directly against the flat MinRelevanceScore.
+        // Ignored entirely server-side when EnableHybridSearch is on (see
+        // RagOptions.EnableHybridSearch's doc comment) — harmless to still
+        // compute/pass.
         var searchFloor = ragOptions.EnableAdaptiveThreshold
             ? Math.Min(ragOptions.AdaptiveFloorScore, ragOptions.MinRelevanceScore)
             : ragOptions.MinRelevanceScore;
 
         var candidates = new List<VectorSearchResult>();
         await foreach (var result in vectorStore
-            .SearchAsync(VectorCollection.Documents, queryEmbedding, ragOptions.TopK, searchFloor, cancellationToken)
+            .SearchAsync(
+                VectorCollection.Documents,
+                queryEmbedding,
+                ragOptions.TopK,
+                searchFloor,
+                ragOptions.EnableHybridSearch ? queryText : null,
+                cancellationToken)
             .ConfigureAwait(false))
         {
             candidates.Add(result);
         }
 
-        var kept = ragOptions.EnableAdaptiveThreshold
-            ? ApplyAdaptiveThreshold(candidates, ragOptions)
-            : candidates;
+        // See RagOptions.EnableHybridSearch's doc comment — a fused (RRF)
+        // score is rank-based, not cosine similarity, so the
+        // cosine-calibrated adaptive-threshold math below doesn't apply to
+        // it; ApplyHybridRelevanceFilter is the rescaled equivalent.
+        var kept = ragOptions.EnableHybridSearch
+            ? ApplyHybridRelevanceFilter(candidates, ragOptions)
+            : ragOptions.EnableAdaptiveThreshold
+                ? ApplyAdaptiveThreshold(candidates, ragOptions)
+                : candidates;
 
         return kept.Select(result => new DocumentChunk
         {
@@ -79,5 +95,33 @@ internal static class RagRetrieval
         return candidates
             .Where(c => c.Score >= cutoff && c.Score >= ragOptions.AdaptiveFloorScore)
             .ToList();
+    }
+
+    /// <summary>
+    /// Hybrid-search equivalent of <see cref="ApplyAdaptiveThreshold"/> —
+    /// see <see cref="RagOptions.HybridRelevanceRatio"/>'s doc comment for
+    /// why this uses a ratio (scale-free) instead of an absolute margin
+    /// (calibrated to cosine similarity, doesn't transfer to a fused RRF
+    /// score). Same "don't assume pre-sorted" caution as
+    /// <see cref="ApplyAdaptiveThreshold"/> — takes the max explicitly.
+    /// Internal (not private): <see cref="Looma.Application.UseCases.AnswerUseCase"/>
+    /// also does its own inline hybrid retrieval (see that class's doc
+    /// comment for why it doesn't otherwise go through this class) and
+    /// needs the identical filter rather than a second, potentially
+    /// drifting copy of the same logic.
+    /// </summary>
+    internal static List<VectorSearchResult> ApplyHybridRelevanceFilter(
+        List<VectorSearchResult> candidates,
+        RagOptions ragOptions)
+    {
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var topScore = candidates.Max(c => c.Score);
+        var cutoff = topScore * ragOptions.HybridRelevanceRatio;
+
+        return candidates.Where(c => c.Score >= cutoff).ToList();
     }
 }

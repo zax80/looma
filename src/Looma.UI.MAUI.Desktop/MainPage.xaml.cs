@@ -256,13 +256,30 @@ public partial class MainPage : ContentPage
         {
             await foreach (var token in _chatUseCase.SendMessageAsync(sessionId, typedText, attachmentContext, attachedFileName, cts.Token))
             {
+                if (token.IsStatus)
+                {
+                    // Progress narration, not answer content — see
+                    // AnswerToken.IsStatus's doc comment. Shown in place of
+                    // the generic "Thinking…" label; deliberately NOT
+                    // appended to answerSoFar (that's compared against
+                    // GroundedAnswer.NoAnswerSentence below, and persisted
+                    // as this turn's actual answer text upstream in
+                    // ChatUseCase/RemoteChatUseCase).
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        assistantItem.StatusText = token.Text;
+                        _ = UpdateStreamingMessageAsync(assistantIndex);
+                    });
+                    continue;
+                }
+
                 if (!token.IsFinal)
                 {
                     answerSoFar.Append(token.Text);
                     var partial = answerSoFar.ToString();
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        assistantItem.IsGenerating = false; // first token arrived — stop showing "Thinking…"
+                        assistantItem.IsGenerating = false; // first REAL content token arrived — stop showing the status indicator
                         assistantItem.Text = partial;
                         _ = UpdateStreamingMessageAsync(assistantIndex);
                     });
@@ -551,7 +568,8 @@ public partial class MainPage : ContentPage
 
             sb.Append($"""<div class="msg" id="msg-{i}">""");
             sb.Append($"""<div class="role {roleClass}">{HtmlEncode(item.RoleLabel)}</div>""");
-            sb.Append($"""<div class="thinking" style="display:{thinkingDisplay}">Thinking…</div>""");
+            var thinkingLabel = HtmlEncode(item.StatusText ?? "Thinking…");
+            sb.Append($"""<div class="thinking" style="display:{thinkingDisplay}">{thinkingLabel}</div>""");
             sb.Append($"""<div class="text">{HtmlEncode(item.Text)}</div>""");
             sb.Append($"""<div class="citations" style="display:{citationsDisplay}">{HtmlEncode(item.CitationsText)}</div>""");
             sb.Append($"""<a class="action-link" href="looma-export:{i}" style="display:{exportDisplay}">{HtmlEncode(item.ExportButtonText)}</a>""");
@@ -584,6 +602,7 @@ public partial class MainPage : ContentPage
 
         var item = _transcript[index];
         var textJson = JsonSerializer.Serialize(item.Text);
+        var thinkingLabelJson = JsonSerializer.Serialize(item.StatusText ?? "Thinking…");
         var citationsJson = JsonSerializer.Serialize(item.CitationsText ?? string.Empty);
         var exportLabelJson = JsonSerializer.Serialize(item.ExportButtonText);
         var thinkingDisplay = item.IsGenerating ? "block" : "none";
@@ -597,7 +616,7 @@ public partial class MainPage : ContentPage
               var textEl = el.querySelector('.text');
               if (textEl) { textEl.textContent = {{textJson}}; }
               var thinkingEl = el.querySelector('.thinking');
-              if (thinkingEl) { thinkingEl.style.display = '{{thinkingDisplay}}'; }
+              if (thinkingEl) { thinkingEl.textContent = {{thinkingLabelJson}}; thinkingEl.style.display = '{{thinkingDisplay}}'; }
               var citeEl = el.querySelector('.citations');
               if (citeEl) { citeEl.textContent = {{citationsJson}}; citeEl.style.display = '{{citationsDisplay}}'; }
               var exportEl = el.querySelector('.action-link[href^="looma-export:"]');

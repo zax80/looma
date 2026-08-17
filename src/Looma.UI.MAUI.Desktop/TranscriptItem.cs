@@ -36,15 +36,34 @@ public sealed class TranscriptItem : INotifyPropertyChanged
 
     /// <summary>
     /// True from the moment an assistant bubble is created until its first
-    /// token arrives (or it fails) — MainPage shows a "thinking" indicator
-    /// while this is true instead of an empty bubble, so waiting on
-    /// retrieval + the model's first token doesn't look like nothing is
-    /// happening.
+    /// REAL content token arrives (or it fails) — MainPage shows a
+    /// "thinking" indicator while this is true instead of an empty bubble,
+    /// so waiting on retrieval + the model's first token doesn't look like
+    /// nothing is happening. AnswerToken.IsStatus tokens (see
+    /// <see cref="StatusText"/>) do NOT turn this off — they're still
+    /// "nothing to show as the answer yet," just with something more
+    /// specific than "Thinking…" to say about why.
     /// </summary>
     public bool IsGenerating
     {
         get => _isGenerating;
         set => SetField(ref _isGenerating, value);
+    }
+
+    private string? _statusText;
+
+    /// <summary>
+    /// Live progress narration from AnswerToken.IsStatus tokens
+    /// ("Generating answer...", "No local match found — searching the
+    /// web...") — shown in place of the generic "Thinking…" label while
+    /// <see cref="IsGenerating"/> is true. Null (the common, fast case —
+    /// EnableWebSearch off, or plain streaming already producing real
+    /// content) falls back to the plain "Thinking…" label.
+    /// </summary>
+    public string? StatusText
+    {
+        get => _statusText;
+        set => SetField(ref _statusText, value);
     }
 
     private string? _citationsText;

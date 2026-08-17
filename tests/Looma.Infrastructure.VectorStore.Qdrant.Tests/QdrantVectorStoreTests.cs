@@ -301,4 +301,146 @@ public sealed class QdrantVectorStoreTests : IClassFixture<QdrantFixture>
         await Assert.ThrowsAsync<VectorStoreUnavailableException>(
             () => store.EnsureCollectionAsync(VectorCollection.Documents, Dimensions));
     }
+
+    // ---- Hybrid search — real Qdrant only, per CLAUDE.md's no-mocks-only
+    // rule. Server-side BM25 needs Qdrant 1.15.2+ (see QdrantVectorStore's
+    // class doc comment); a too-old test instance is reported and skipped
+    // rather than failed, since that's an environment fact, not a bug. ----
+
+    /// <summary>
+    /// Returns true (and reports why) if this run's Qdrant is reachable but
+    /// too old for hybrid search — <see cref="SkipIfUnavailable"/> already
+    /// covers "not reachable at all"; this covers the other real reason a
+    /// hybrid test can't run here.
+    /// </summary>
+    private async Task<bool> SkipIfHybridSearchUnsupportedAsync(QdrantVectorStore store, string hybridCollectionName)
+    {
+        try
+        {
+            await store.EnsureCollectionAsync(VectorCollection.Documents, Dimensions, enableHybridSearch: true);
+            return false;
+        }
+        catch (QdrantRequestException ex) when (ex.Message.Contains("1.15.2", StringComparison.Ordinal))
+        {
+            _output.WriteLine($"SKIPPED: {ex.Message}");
+            return true;
+        }
+    }
+
+    [Fact]
+    public async Task HybridSearch_KeywordMatchOutranksUnrelatedButCloserVector_WhenFusedWithBm25()
+    {
+        if (SkipIfUnavailable())
+        {
+            return;
+        }
+
+        // A dedicated collection, NOT the fixture's shared Documents
+        // collection — every other test in this class expects Documents to
+        // keep its plain (unnamed-vector) schema, and EnsureCollectionAsync
+        // only ever migrates non-hybrid → hybrid, never back. Recreating the
+        // SHARED collection as hybrid here would silently break whichever
+        // plain-schema test happens to run after this one (xUnit doesn't
+        // guarantee test order within a class) — a real failure mode hit
+        // live: "Wrong input: Not existing vector name error" on a plain
+        // UpsertAsync once the shared collection had already been migrated.
+        var name = $"looma_test_hybrid_{Guid.NewGuid():N}";
+        var store = new QdrantVectorStore(
+            _fixture.HttpClient,
+            Options.Create(new QdrantOptions
+            {
+                Endpoint = _fixture.HttpClient.BaseAddress!.ToString(),
+                Collections = new QdrantCollectionNames { Documents = name, Images = name }
+            }));
+
+        if (await SkipIfHybridSearchUnsupportedAsync(store, name))
+        {
+            return;
+        }
+
+        try
+        {
+            // Same embedding for both — an all-vector search genuinely can't
+            // tell these apart, so ranking the BM25-matching one first is
+            // only possible because the sparse/keyword leg contributed to
+            // the fused result. That's the actual behavior under test, not
+            // merely "hybrid search runs without throwing."
+            var sharedEmbedding = new ReadOnlyMemory<float>([0.5f, 0.5f, 0.5f, 0.5f]);
+
+            var matching = new VectorRecord
+            {
+                Id = Guid.NewGuid().ToString(),
+                Embedding = sharedEmbedding,
+                Content = "The Bonibon caramel wafer recipe uses hazelnut cream.",
+                Metadata = new ChunkMetadata { SourcePath = "bonibon.txt", MediaType = MediaType.Text, ChunkIndex = 0, IndexedAtUtc = DateTimeOffset.UtcNow }
+            };
+            var unrelated = new VectorRecord
+            {
+                Id = Guid.NewGuid().ToString(),
+                Embedding = sharedEmbedding,
+                Content = "Quantum computers use superconducting qubits at millikelvin temperatures.",
+                Metadata = new ChunkMetadata { SourcePath = "quantum.txt", MediaType = MediaType.Text, ChunkIndex = 0, IndexedAtUtc = DateTimeOffset.UtcNow }
+            };
+
+            await store.UpsertAsync(VectorCollection.Documents, [matching, unrelated], enableHybridSearch: true);
+
+            var results = new List<VectorSearchResult>();
+            await foreach (var result in store.SearchAsync(
+                VectorCollection.Documents, sharedEmbedding, topK: 5, queryText: "Bonibon caramel recipe"))
+            {
+                results.Add(result);
+            }
+
+            Assert.NotEmpty(results);
+            Assert.Equal(matching.Id, results[0].Id);
+        }
+        finally
+        {
+            await _fixture.HttpClient.DeleteAsync($"/collections/{name}");
+        }
+    }
+
+    [Fact]
+    public async Task EnsureCollectionAsync_ExistingNonHybridCollection_MigratesWhenHybridRequested()
+    {
+        if (SkipIfUnavailable())
+        {
+            return;
+        }
+
+        var name = $"looma_test_migrate_{Guid.NewGuid():N}";
+        var store = new QdrantVectorStore(
+            _fixture.HttpClient,
+            Options.Create(new QdrantOptions
+            {
+                Endpoint = _fixture.HttpClient.BaseAddress!.ToString(),
+                Collections = new QdrantCollectionNames { Documents = name, Images = name }
+            }));
+
+        // Old (pre-hybrid) schema first — a point in it so migration
+        // (recreate) is actually observable via the count resetting.
+        await store.EnsureCollectionAsync(VectorCollection.Documents, Dimensions);
+        await store.UpsertAsync(VectorCollection.Documents, [new VectorRecord
+        {
+            Id = Guid.NewGuid().ToString(),
+            Embedding = new ReadOnlyMemory<float>([1f, 0f, 0f, 0f]),
+            Content = "pre-migration point",
+            Metadata = new ChunkMetadata { SourcePath = "old.txt", MediaType = MediaType.Text, ChunkIndex = 0, IndexedAtUtc = DateTimeOffset.UtcNow }
+        }]);
+
+        if (await SkipIfHybridSearchUnsupportedAsync(store, name))
+        {
+            await _fixture.HttpClient.DeleteAsync($"/collections/{name}");
+            return;
+        }
+
+        var countAfterMigration = await store.CountAsync(VectorCollection.Documents);
+
+        // Migration means recreation — the old schema's data doesn't
+        // survive (see QdrantVectorStore's class doc comment for why this
+        // is the deliberate, explicitly-chosen behavior, not a bug).
+        Assert.Equal(0, countAfterMigration);
+
+        await _fixture.HttpClient.DeleteAsync($"/collections/{name}");
+    }
 }

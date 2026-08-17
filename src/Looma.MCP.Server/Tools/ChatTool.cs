@@ -60,7 +60,16 @@ public static class ChatTool
                 .CompleteAsync(history, message, attachmentContext, cancellationToken)
                 .ConfigureAwait(false))
             {
-                answerText.Append(token.Text);
+                // IsStatus tokens ("Generating answer...", "No local match
+                // found — searching the web...") are progress narration,
+                // not answer content — see AnswerToken.IsStatus's doc
+                // comment. Still forwarded below as their own progress
+                // notification (a client watching progress sees them), just
+                // excluded from the final CallToolResult text.
+                if (!token.IsStatus)
+                {
+                    answerText.Append(token.Text);
+                }
 
                 // Strip embedding vectors before this crosses the wire — same
                 // reasoning as AnswerTool.
