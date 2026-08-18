@@ -227,20 +227,25 @@ indexed — it won't.
   "Enabled": true,
   "FilePath": "./.looma/answer-cache.json",
   "CollectionName": "answer_cache",
-  "SemanticSimilarityThreshold": 0.97
+  "SemanticSimilarityThreshold": 0.97,
+  "WebCitationMaxAgeHours": 24,
+  "MaxExactEntries": 500
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `Enabled` | Toggles caching. Reuses `VectorStore.Endpoint`/`ApiKey` (same Qdrant instance) — this section only adds cache-specific settings. |
-| `FilePath` | Exact-match layer: a local JSON file keyed by normalized question text. Resolved relative to the working directory. |
+| `FilePath` | Exact-match layer: a local JSON file keyed by normalized question text. Resolved relative to the working directory. Kept in memory after first load for the rest of the process's lifetime (this process is the file's sole writer), so cache hits after the first never touch disk again. |
 | `CollectionName` | Semantic-fallback layer: a dedicated Qdrant collection for cached question embeddings — deliberately separate from `documents`/`images` (never mix embedding purposes in one collection). |
 | `SemanticSimilarityThreshold` | Cosine similarity a candidate question must clear to count as "the same question." Deliberately strict (`0.97`) — a false positive here means confidently serving a wrong answer, worse than the latency the cache exists to avoid. |
+| `WebCitationMaxAgeHours` | Hours after which a cached answer citing at least one web search result is treated as stale and no longer served, on top of the existing re-index invalidation (which a web citation's real-world content can outlive without ever changing the local chunk count). Answers sourced entirely from local documents are unaffected. `null` disables this check entirely. Default `24`, a reasoned starting point rather than a measured-optimal value. |
+| `MaxExactEntries` | Soft cap on the exact-match layer's entry count. Once exceeded, the oldest entries (by creation time, not last-accessed — true LRU would add a write-back cost to every lookup) are evicted on the next write until back under the cap. Zero or less disables eviction (unbounded growth). The semantic (Qdrant) layer is not capped by this — it scales with point count far better than repeatedly rewriting a flat JSON file. Default `500`. |
 
 Run `looma clear-cache` after a prompt/model/config change that a re-index
 wouldn't otherwise invalidate — the cache's staleness check only tracks
-re-indexing, not generation-affecting settings.
+re-indexing and (for web-cited answers) `WebCitationMaxAgeHours`, not other
+generation-affecting settings.
 
 ## `ChatHistory`
 

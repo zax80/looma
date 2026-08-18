@@ -104,7 +104,9 @@
     "Enabled": true,
     "FilePath": "./.looma/answer-cache.json",
     "CollectionName": "answer_cache",
-    "SemanticSimilarityThreshold": 0.97
+    "SemanticSimilarityThreshold": 0.97,
+    "WebCitationMaxAgeHours": 24,
+    "MaxExactEntries": 500
   },
   "ChatHistory": {
     "SessionsFilePath": "./.looma/chat-sessions.json",

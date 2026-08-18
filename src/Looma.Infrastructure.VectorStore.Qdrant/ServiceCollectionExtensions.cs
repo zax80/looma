@@ -1,4 +1,5 @@
 using Looma.Core.Abstractions;
+using Looma.Infrastructure.VectorStore.Qdrant.Internal;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -38,6 +39,11 @@ public static class ServiceCollectionExtensions
     {
         services.AddOptions<AnswerCacheOptions>()
             .Bind(configuration.GetSection(AnswerCacheOptions.SectionName));
+
+        // Singleton, deliberately — see AnswerCacheMemoryStore's doc
+        // comment for why QdrantAnswerCache itself (registered below via
+        // AddHttpClient, always Transient) can't hold this state directly.
+        services.AddSingleton<AnswerCacheMemoryStore>();
 
         services.AddHttpClient<IAnswerCache, QdrantAnswerCache>((serviceProvider, client) =>
         {

@@ -20,7 +20,13 @@ namespace Looma.Infrastructure.VectorStore.Qdrant;
 ///
 /// Both layers key a hit on <c>DocumentsVersion</c> matching the current
 /// chunk count — a re-index changes that count and silently invalidates
-/// every prior entry rather than risking a stale answer.
+/// every prior entry rather than risking a stale answer. A web-cited
+/// answer additionally expires on its own after
+/// <see cref="AnswerCacheOptions.WebCitationMaxAgeHours"/> — see
+/// <c>AnswerCacheStaleness</c>'s doc comment for why <c>DocumentsVersion</c>
+/// alone doesn't cover that case. The exact-match layer is also soft-capped
+/// at <see cref="AnswerCacheOptions.MaxExactEntries"/> — see
+/// <c>AnswerCacheEviction</c>'s doc comment.
 ///
 /// Every operation here is best-effort: a cache read/write failure (file
 /// permissions, Qdrant briefly unreachable, corrupt file) must never break
@@ -32,12 +38,14 @@ public sealed class QdrantAnswerCache : IAnswerCache
 
     private readonly HttpClient _httpClient;
     private readonly AnswerCacheOptions _options;
+    private readonly AnswerCacheMemoryStore _memoryStore;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
-    public QdrantAnswerCache(HttpClient httpClient, IOptions<AnswerCacheOptions> options)
+    public QdrantAnswerCache(HttpClient httpClient, IOptions<AnswerCacheOptions> options, AnswerCacheMemoryStore memoryStore)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _memoryStore = memoryStore;
     }
 
     public async Task<CachedAnswer?> TryGetExactAsync(
@@ -57,6 +65,11 @@ public sealed class QdrantAnswerCache : IAnswerCache
         }
 
         if (entry.DocumentsVersion != documentsVersion)
+        {
+            return null;
+        }
+
+        if (AnswerCacheStaleness.IsStale(entry.Citations, entry.CreatedAtUtc, _options.WebCitationMaxAgeHours, DateTimeOffset.UtcNow))
         {
             return null;
         }
@@ -115,6 +128,8 @@ public sealed class QdrantAnswerCache : IAnswerCache
             {
                 File.Delete(path);
             }
+
+            _memoryStore.Clear();
         }
         finally
         {
@@ -167,6 +182,8 @@ public sealed class QdrantAnswerCache : IAnswerCache
                 CreatedAtUtc = createdAt
             };
 
+            AnswerCacheEviction.EvictOldestIfOverCapacity(entries, _options.MaxExactEntries);
+
             var path = ResolveFilePath();
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory))
@@ -177,6 +194,10 @@ public sealed class QdrantAnswerCache : IAnswerCache
             await using var stream = File.Create(path);
             await JsonSerializer.SerializeAsync(stream, entries, new JsonSerializerOptions { WriteIndented = true }, cancellationToken)
                 .ConfigureAwait(false);
+
+            // Keep the shared in-memory copy in sync with what was actually
+            // written — see AnswerCacheMemoryStore's doc comment.
+            _memoryStore.Set(entries);
         }
         catch (IOException)
         {
@@ -204,10 +225,21 @@ public sealed class QdrantAnswerCache : IAnswerCache
 
     private async Task<Dictionary<string, ExactCacheEntry>> LoadFileNoLockAsync(CancellationToken cancellationToken)
     {
+        // See AnswerCacheMemoryStore's doc comment — this process is the
+        // file's sole writer (every write goes through StoreExactAsync,
+        // which re-syncs this same field), so once loaded once, disk never
+        // needs to be touched again for the rest of this process's lifetime.
+        if (_memoryStore.Entries is { } cached)
+        {
+            return cached;
+        }
+
         var path = ResolveFilePath();
         if (!File.Exists(path))
         {
-            return [];
+            var empty = new Dictionary<string, ExactCacheEntry>();
+            _memoryStore.Set(empty);
+            return empty;
         }
 
         try
@@ -215,11 +247,19 @@ public sealed class QdrantAnswerCache : IAnswerCache
             await using var stream = File.OpenRead(path);
             var loaded = await JsonSerializer.DeserializeAsync<Dictionary<string, ExactCacheEntry>>(stream, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            return loaded ?? [];
+            loaded ??= [];
+            _memoryStore.Set(loaded);
+            return loaded;
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
-            // Corrupt or unreadable cache file — treat as empty rather than crashing answer generation.
+            // Corrupt or unreadable cache file — treat as empty rather than
+            // crashing answer generation. Deliberately NOT cached in
+            // _memoryStore: if the underlying issue is transient (e.g. a
+            // momentary file lock from another process), the next call
+            // should retry reading from disk rather than being stuck
+            // treating the cache as permanently empty for the rest of the
+            // process's lifetime.
             return [];
         }
     }
@@ -277,8 +317,13 @@ public sealed class QdrantAnswerCache : IAnswerCache
             // Qdrant already applied score_threshold, but re-checking the
             // documents-version staleness guard client-side keeps that
             // invariant enforced in exactly one place regardless of what the
-            // query filtered on.
+            // query filtered on. Same for web-citation staleness.
             if (best.Payload.DocumentsVersion != documentsVersion)
+            {
+                return null;
+            }
+
+            if (AnswerCacheStaleness.IsStale(best.Payload.Citations, best.Payload.CreatedAtUtc, _options.WebCitationMaxAgeHours, DateTimeOffset.UtcNow))
             {
                 return null;
             }
