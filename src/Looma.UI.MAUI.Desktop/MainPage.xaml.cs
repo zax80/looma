@@ -56,6 +56,7 @@ public partial class MainPage : ContentPage
     private readonly IImageCaptionUseCase? _imageCaptionUseCase;
     private readonly IDocumentExtractionUseCase? _documentExtractionUseCase;
     private readonly IDocumentExportUseCase? _documentExportUseCase;
+    private readonly IChatModelCapabilities? _chatModelCapabilities;
     private readonly IAudioRecorder? _audioRecorder;
     private readonly ObservableCollection<TranscriptItem> _transcript = [];
     private readonly ObservableCollection<ChatSessionSummary> _sessions = [];
@@ -86,6 +87,7 @@ public partial class MainPage : ContentPage
         _imageCaptionUseCase = services.GetService<IImageCaptionUseCase>();
         _documentExtractionUseCase = services.GetService<IDocumentExtractionUseCase>();
         _documentExportUseCase = services.GetService<IDocumentExportUseCase>();
+        _chatModelCapabilities = services.GetService<IChatModelCapabilities>();
         _audioRecorder = services.GetService<IAudioManager>()?.CreateRecorder();
 
         // No point showing controls that can't do anything — these resolve
@@ -125,6 +127,24 @@ public partial class MainPage : ContentPage
             return;
         }
         _initialized = true;
+
+        // Only shown once we know the configured BaseModel actually
+        // supports it — offering a toggle that's always a no-op would be
+        // confusing, not just harmless. Best-effort: a capability-check
+        // failure (e.g. McpClient mode's remote round trip hitting a
+        // transient error) just leaves the toggle hidden, same as an
+        // unsupported model — no reason to block the rest of startup over it.
+        if (_chatModelCapabilities is not null)
+        {
+            try
+            {
+                ThinkToggleRow.IsVisible = await _chatModelCapabilities.SupportsThinkingAsync();
+            }
+            catch
+            {
+                ThinkToggleRow.IsVisible = false;
+            }
+        }
 
         await ReloadSessionsAsync();
 
@@ -252,9 +272,16 @@ public partial class MainPage : ContentPage
 
         var answerSoFar = new StringBuilder();
 
+        // Read now, not at the top of this method — a toggle change mid-type
+        // should apply to whatever's about to be sent, and this is the last
+        // point before the request actually goes out. ThinkToggleRow is only
+        // ever visible when the model supports it (see OnAppearing), so
+        // IsToggled is meaningful precisely when it matters.
+        var thinkingMode = ThinkToggleRow.IsVisible && ThinkSwitch.IsToggled ? ThinkingMode.Think : ThinkingMode.Ask;
+
         try
         {
-            await foreach (var token in _chatUseCase.SendMessageAsync(sessionId, typedText, attachmentContext, attachedFileName, cts.Token))
+            await foreach (var token in _chatUseCase.SendMessageAsync(sessionId, typedText, attachmentContext, attachedFileName, thinkingMode, cts.Token))
             {
                 if (token.IsStatus)
                 {

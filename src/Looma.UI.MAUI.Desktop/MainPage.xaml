@@ -105,7 +105,7 @@
                     <Button Grid.Column="1" Text="✕" Clicked="OnRemovePendingAttachmentClicked" WidthRequest="32" Padding="0" />
                 </Grid>
 
-                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
                     <Button x:Name="MicButton"
                             Grid.Column="0"
                             Text="🎙"
@@ -123,8 +123,19 @@
                            Grid.Column="2"
                            Placeholder="Ask a question about your documents..."
                            Completed="OnSendClicked" />
-                    <Button x:Name="SendButton" Grid.Column="3" Text="Send" Clicked="OnSendClicked" />
-                    <Button x:Name="SaveButton" Grid.Column="4" Text="Save answer" Clicked="OnSaveAnswerClicked" />
+
+                    <!-- Ask/Think toggle — hidden entirely unless the configured
+                         BaseModel actually supports reasoning (see MainPage's
+                         OnAppearing, which queries IChatModelCapabilities once).
+                         Per-message, not per-session: read directly off
+                         ThinkSwitch.IsToggled at send time in OnSendClicked. -->
+                    <HorizontalStackLayout Grid.Column="3" x:Name="ThinkToggleRow" Spacing="4" VerticalOptions="Center" IsVisible="False">
+                        <Label Text="Think" FontSize="12" TextColor="Gray" VerticalOptions="Center" />
+                        <Switch x:Name="ThinkSwitch" ToolTipProperties.Text="Let the model reason before answering (slower)" />
+                    </HorizontalStackLayout>
+
+                    <Button x:Name="SendButton" Grid.Column="4" Text="Send" Clicked="OnSendClicked" />
+                    <Button x:Name="SaveButton" Grid.Column="5" Text="Save answer" Clicked="OnSaveAnswerClicked" />
                 </Grid>
 
             </Grid>

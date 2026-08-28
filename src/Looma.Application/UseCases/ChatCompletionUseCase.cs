@@ -228,6 +228,7 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         IReadOnlyList<ChatMessageEntry> history,
         string message,
         string? attachmentContext = null,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var retrievalQuery = _ragOptions.EnableQueryReformulation
@@ -247,6 +248,14 @@ public sealed class ChatCompletionUseCase : IChatCompletionUseCase
         {
             chatOptions.MaxOutputTokens = maxTokens;
         }
+
+        // See ThinkingModeChatOption's doc comment — set once, reused by
+        // every generation call below (including the web-fallback retry),
+        // same as AnswerUseCase's identical line.
+        chatOptions.AdditionalProperties = new AdditionalPropertiesDictionary
+        {
+            [ThinkingModeChatOption.Key] = thinkingMode
+        };
 
         if (!_ragOptions.EnableWebSearch)
         {

@@ -61,16 +61,30 @@ public sealed class ModelEndpointOptions
     public string? DownloadUrl { get; set; }
 
     /// <summary>
-    /// Only meaningful for <see cref="LlmOptions.BaseModel"/>. Reasoning
-    /// ("thinking") models like Qwen3 auto-enable a hidden chain-of-thought
-    /// pass by default via Ollama's OpenAI-compatible endpoint — real
+    /// Only meaningful for <see cref="LlmOptions.BaseModel"/>. Whether this
+    /// model can be asked to reason ("think") before answering at all —
+    /// reasoning models like Qwen3 auto-enable a hidden chain-of-thought
+    /// pass by default via Ollama's OpenAI-compatible endpoint (real
     /// generation time spent before the first visible answer token, which
-    /// shows up as a long silent pause, not slower streaming. Defaults to
-    /// disabling it, since Looma's `answer` is grounded RAG Q&A ("answer
-    /// using only the provided context"), not open-ended reasoning — set
-    /// this false if a harder synthesis question needs the model to reason.
+    /// shows up as a long silent pause, not slower streaming), while a
+    /// model like Gemma3/BgGPT has no such mode at all. Explicit config,
+    /// not auto-detected from the model name — same "don't guess, be told"
+    /// stance as the rest of this options class.
+    ///
+    /// Defaults to <c>false</c> (safe: never sends a
+    /// <c>reasoning_effort</c> field the model wasn't asked about). When
+    /// <c>true</c>, <see cref="ReasoningEffortChatClient"/> is wired in and
+    /// honors a per-request <c>Looma.Core.Entities.ThinkingMode</c> — see
+    /// its own doc comment — defaulting to <c>Ask</c> (no reasoning) unless
+    /// a caller explicitly opts into <c>Think</c> for that one request
+    /// (CLI <c>--think</c>, an MCP tool's <c>think</c> parameter, or the
+    /// MAUI Desktop chat UI's toggle). Set this <c>true</c> for a
+    /// reasoning-capable model like Qwen3 to make that toggle available;
+    /// leave it <c>false</c> for a model with no reasoning mode (e.g.
+    /// Gemma3/BgGPT) — the toggle is then hidden/disabled client-side and
+    /// a stray request for <c>Think</c> is silently treated as <c>Ask</c>.
     /// </summary>
-    public bool DisableThinking { get; set; } = true;
+    public bool SupportsThinking { get; set; }
 
     /// <summary>
     /// HTTP network timeout for calls to this model, in seconds. The OpenAI
@@ -84,6 +98,24 @@ public sealed class ModelEndpointOptions
     /// hardware is fast and you'd rather a hang fail quickly than wait.
     /// </summary>
     public int TimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Only meaningful for <see cref="LlmOptions.SpeechToTextModel"/> — a
+    /// Whisper language code (e.g. <c>"bg"</c>, <c>"en"</c>) to force
+    /// transcription into. Defaults to <c>"auto"</c> (Whisper detects the
+    /// spoken language itself from the audio). Auto-detect is a real weak
+    /// point for a lower-resource language on a short clip — a quick voice
+    /// question often doesn't give the model enough audio to detect the
+    /// language reliably, on top of (not instead of) whatever accuracy gap
+    /// the model size itself has for that language — see
+    /// docs/model-setup.md's Whisper section. A bigger model helps the
+    /// accuracy side, this setting helps the detection side; they're
+    /// independent, both worth doing for a consistently non-English
+    /// speaker. Set this to your own language's
+    /// code if you always (or almost always) speak the same language to
+    /// Looma; leave it <c>"auto"</c> if you switch between languages.
+    /// </summary>
+    public string Language { get; set; } = "auto";
 
     /// <summary>
     /// Only meaningful on <see cref="LlmOptions.ImageEmbeddingModel"/>, and

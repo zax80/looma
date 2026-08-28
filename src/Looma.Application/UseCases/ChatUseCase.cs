@@ -68,6 +68,7 @@ public sealed class ChatUseCase : IChatUseCase
         string message,
         string? attachmentContext = null,
         string? attachmentLabel = null,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Fetched before the current user message is appended below — this
@@ -101,7 +102,7 @@ public sealed class ChatUseCase : IChatUseCase
         // See the class doc comment's "Balanced turns, even on failure"
         // section for why this exists.
         var enumerator = _chatCompletionUseCase
-            .CompleteAsync(session.Messages, message, attachmentContext, cancellationToken)
+            .CompleteAsync(session.Messages, message, attachmentContext, thinkingMode, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
         try
         {

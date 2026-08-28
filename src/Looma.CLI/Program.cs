@@ -61,6 +61,17 @@ public static class Program
             return 1;
         }
 
+        // Special-cased ahead of the "config.json must exist" check below —
+        // that's the entire point of this command: it's how config.json
+        // gets created in the first place. Re-running it against an
+        // existing config.json also works (merges on top, see
+        // Looma.CLI.Setup.ConfigMerger), so it isn't gated on the file's
+        // absence either.
+        if (remainingArgs[0] == "setup")
+        {
+            return await SetupCommand.RunAsync(configPath, remainingArgs[1..]);
+        }
+
         if (!File.Exists(configPath))
         {
             Console.Error.WriteLine(
@@ -393,11 +404,26 @@ public static class Program
             looma — local-first document intelligence
 
             Usage:
+              looma [--config <path>] setup [--domain <name>] [--location <place>]
+                                             [--mode Standalone|McpClient] [--mcp-endpoint <url>]
+                                             [--scale true|false]
               looma [--config <path>] index <path> [--no-recursive] [--clear]
-              looma [--config <path>] answer "<question>"
+              looma [--config <path>] answer "<question>" [--think]
               looma [--config <path>] count [--collection documents|images]
               looma [--config <path>] search "<query>" [--top-k N] [--min-score X] [--collection documents|images]
               looma [--config <path>] clear-cache
+
+            setup creates (or updates) config.json — interactively prompting
+            for anything not passed as a flag, unless input is redirected, in
+            which case sensible defaults fill the gaps. Domain and location
+            pick a recommended base model + Whisper language (see
+            docs/setup-wizard.md); everything else it doesn't ask about —
+            RAG tuning, TLS, cache sizes — is "advanced settings": edit
+            config.json directly, see docs/config-reference.md.
+
+            --think asks the model to reason before answering — only has an
+            effect if Models:BaseModel:SupportsThinking is true in config.json;
+            a no-op otherwise.
 
             --config defaults to config.json in the current directory.
             Deployment:Mode in config.json selects "Standalone" (default —

@@ -47,10 +47,17 @@ public interface IChatUseCase
     /// that used it, and later turns' sticky-attachment context block
     /// labels this material by name.
     /// </param>
+    /// <param name="thinkingMode">
+    /// See <see cref="IAnswerUseCase.AnswerAsync"/>'s doc comment — same
+    /// default (<see cref="ThinkingMode.Ask"/>) and same no-op-if-unsupported
+    /// behavior. Threaded straight through to
+    /// <see cref="IChatCompletionUseCase.CompleteAsync"/>.
+    /// </param>
     IAsyncEnumerable<AnswerToken> SendMessageAsync(
         string sessionId,
         string message,
         string? attachmentContext = null,
         string? attachmentLabel = null,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         CancellationToken cancellationToken = default);
 }

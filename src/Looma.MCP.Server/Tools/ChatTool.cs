@@ -39,8 +39,10 @@ public static class ChatTool
         [Description("JSON array of prior ChatMessageEntry turns, oldest first (use \"[]\" for a new conversation).")] string historyJson,
         [Description("The new user message.")] string message,
         [Description("Optional extra context for this turn only, e.g. a caption for an image the user attached. Not embedded for retrieval.")] string? attachmentContext,
+        [Description("If true, let the model reason (\"think\") before answering. Only meaningful when the configured BaseModel supports it (see looma_capabilities) — otherwise a no-op. Defaults to false (answer directly).")] bool think = false,
         CancellationToken cancellationToken = default)
     {
+        var thinkingMode = think ? ThinkingMode.Think : ThinkingMode.Ask;
         List<ChatMessageEntry> history;
         try
         {
@@ -57,7 +59,7 @@ public static class ChatTool
         try
         {
             await foreach (var token in chatCompletionUseCase
-                .CompleteAsync(history, message, attachmentContext, cancellationToken)
+                .CompleteAsync(history, message, attachmentContext, thinkingMode, cancellationToken)
                 .ConfigureAwait(false))
             {
                 // IsStatus tokens ("Generating answer...", "No local match

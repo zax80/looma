@@ -32,14 +32,16 @@ public static class AnswerTool
         IAnswerUseCase answerUseCase,
         IProgress<ProgressNotificationValue> progress,
         [Description("The question to answer.")] string question,
+        [Description("If true, let the model reason (\"think\") before answering. Only meaningful when the configured BaseModel supports it (see looma_capabilities) — otherwise a no-op. Defaults to false (answer directly).")] bool think = false,
         CancellationToken cancellationToken = default)
     {
+        var thinkingMode = think ? ThinkingMode.Think : ThinkingMode.Ask;
         var answerText = new StringBuilder();
         IReadOnlyList<DocumentChunk>? citations = null;
 
         try
         {
-            await foreach (var token in answerUseCase.AnswerAsync(question, cancellationToken).ConfigureAwait(false))
+            await foreach (var token in answerUseCase.AnswerAsync(question, thinkingMode, cancellationToken).ConfigureAwait(false))
             {
                 // IsStatus tokens ("Generating answer...", "No local match
                 // found — searching the web...") are progress narration,

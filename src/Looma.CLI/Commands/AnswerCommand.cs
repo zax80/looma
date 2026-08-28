@@ -8,16 +8,35 @@ public static class AnswerCommand
 {
     public static async Task<int> RunAsync(IServiceProvider provider, string[] args)
     {
-        var question = string.Join(' ', args);
+        // --think can appear anywhere among the question words (matching
+        // --config's own handling in Program.cs) — stripped out before the
+        // rest are joined back into the question text.
+        var thinkingMode = ThinkingMode.Ask;
+        var questionArgs = new List<string>(args.Length);
+        foreach (var arg in args)
+        {
+            if (arg == "--think")
+            {
+                thinkingMode = ThinkingMode.Think;
+                continue;
+            }
+
+            questionArgs.Add(arg);
+        }
+
+        var question = string.Join(' ', questionArgs);
         if (string.IsNullOrWhiteSpace(question))
         {
-            Console.Error.WriteLine("""Usage: looma answer "<question>" """);
+            Console.Error.WriteLine("""Usage: looma answer "<question>" [--think]""");
             return 1;
         }
 
         var answerUseCase = provider.GetRequiredService<IAnswerUseCase>();
 
-        await foreach (var token in answerUseCase.AnswerAsync(question))
+        // A no-op if the configured BaseModel doesn't support reasoning —
+        // see ThinkingMode's doc comment — so this is safe to pass
+        // unconditionally rather than needing to query capabilities first.
+        await foreach (var token in answerUseCase.AnswerAsync(question, thinkingMode))
         {
             if (token.IsStatus)
             {

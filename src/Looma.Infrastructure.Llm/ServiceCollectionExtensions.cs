@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
                 .GetChatClient(llmOptions.BaseModel.Model)
                 .AsIChatClient();
 
-            return llmOptions.BaseModel.DisableThinking ? new ReasoningEffortChatClient(client) : client;
+            return llmOptions.BaseModel.SupportsThinking ? new ReasoningEffortChatClient(client) : client;
         });
 
         return services;
@@ -147,7 +147,7 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException(
                 $"'{LlmOptions.SectionName}:{nameof(LlmOptions.SpeechToTextModel)}:ModelPath' is not set in config.json.");
 
-        services.AddSingleton<IAudioTranscriber>(_ => new WhisperAudioTranscriber(modelPath));
+        services.AddSingleton<IAudioTranscriber>(_ => new WhisperAudioTranscriber(modelPath, llmOptions.SpeechToTextModel.Language));
 
         return services;
     }

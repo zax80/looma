@@ -53,6 +53,7 @@ public sealed class RemoteChatUseCase : IChatUseCase
         string message,
         string? attachmentContext = null,
         string? attachmentLabel = null,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Fetched before the current user message is appended below — same
@@ -87,7 +88,8 @@ public sealed class RemoteChatUseCase : IChatUseCase
         {
             ["historyJson"] = historyJson,
             ["message"] = message,
-            ["attachmentContext"] = attachmentContext
+            ["attachmentContext"] = attachmentContext,
+            ["think"] = thinkingMode == ThinkingMode.Think
         };
 
         var fullAnswer = new StringBuilder();

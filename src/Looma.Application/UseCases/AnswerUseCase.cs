@@ -115,6 +115,7 @@ public sealed class AnswerUseCase : IAnswerUseCase
 
     public async IAsyncEnumerable<AnswerToken> AnswerAsync(
         string question,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var timer = new PhaseTimer(DebugTimingEnabled);
@@ -198,6 +199,15 @@ public sealed class AnswerUseCase : IAnswerUseCase
         {
             chatOptions.MaxOutputTokens = maxTokens;
         }
+
+        // See ThinkingModeChatOption's doc comment — this is the one place
+        // per call that sets it; every generation call below reuses this
+        // same chatOptions instance (including the web-fallback retry), so
+        // the caller's choice applies consistently across all of them.
+        chatOptions.AdditionalProperties = new AdditionalPropertiesDictionary
+        {
+            [ThinkingModeChatOption.Key] = thinkingMode
+        };
 
         string fullAnswerText;
 

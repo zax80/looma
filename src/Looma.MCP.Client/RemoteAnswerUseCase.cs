@@ -21,9 +21,16 @@ public sealed class RemoteAnswerUseCase : IAnswerUseCase
         _client = client;
     }
 
-    public IAsyncEnumerable<AnswerToken> AnswerAsync(string question, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<AnswerToken> AnswerAsync(
+        string question,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
+        CancellationToken cancellationToken = default)
     {
-        var arguments = new Dictionary<string, object?> { ["question"] = question };
+        var arguments = new Dictionary<string, object?>
+        {
+            ["question"] = question,
+            ["think"] = thinkingMode == ThinkingMode.Think
+        };
 
         return RemoteStreamHelper.StreamAsync<AnswerToken>(_client, "looma_answer", arguments, cancellationToken);
     }

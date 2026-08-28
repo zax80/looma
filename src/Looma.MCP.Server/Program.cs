@@ -286,7 +286,7 @@ public static class Program
         Console.WriteLine($"                plus Host-header validation ({string.Join(", ", allowedHosts)}).");
         Console.WriteLine("  Tools:        looma_index, looma_search, looma_answer, looma_count, looma_clear_cache,");
         Console.WriteLine("                looma_chat, looma_transcribe, looma_caption_image,");
-        Console.WriteLine("                looma_extract_document");
+        Console.WriteLine("                looma_extract_document, looma_capabilities");
 
         await app.RunAsync();
         return 0;

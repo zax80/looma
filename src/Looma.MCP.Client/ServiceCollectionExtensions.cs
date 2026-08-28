@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICountUseCase, RemoteCountUseCase>();
         services.AddSingleton<IAnswerCache, RemoteAnswerCache>();
         services.AddSingleton<IChatUseCase, RemoteChatUseCase>();
+        services.AddSingleton<IChatModelCapabilities, RemoteChatModelCapabilities>();
         services.AddSingleton<ISavedAnswerUseCase, SavedAnswerUseCase>();
         services.AddSingleton<ITranscriptionUseCase, RemoteTranscriptionUseCase>();
         services.AddSingleton<IImageCaptionUseCase, RemoteImageCaptionUseCase>();

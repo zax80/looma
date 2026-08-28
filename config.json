@@ -9,9 +9,9 @@
     "BaseModel": {
       "Provider": "Ollama",
       "Endpoint": "http://localhost:11434",
-      "Model": "qwen3:8b",
+      "Model": "hf.co/INSAIT-Institute/BgGPT-Gemma-3-12B-IT-GGUF:Q4_K_M",
       "ContextSize": 8192,
-      "DisableThinking": true
+      "SupportsThinking": false
     },
     "EmbeddingModel": {
       "Provider": "Ollama",
@@ -40,8 +40,9 @@
     },
     "SpeechToTextModel": {
       "Provider": "Local.Whisper",
-      "ModelPath": "./models/whisper-base.bin",
-      "DownloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+      "ModelPath": "./models/whisper-small.bin",
+      "DownloadUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+      "Language": "bg"
     }
   },
   "VectorStore": {

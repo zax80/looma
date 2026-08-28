@@ -145,13 +145,14 @@ Claude Desktop's custom MCP server config — before relying on this.
 | --- | --- | --- |
 | `looma_index` | `IIndexingUseCase` | Streams a progress notification per file; destructive if `clearFirst=true`. |
 | `looma_search` | `ISearchUseCase` | `collection="images"` currently only supports image-to-image queries — no CLIP text encoder is wired up yet for text→image search. |
-| `looma_answer` | `IAnswerUseCase` | Streams generated tokens as progress notifications; final result includes citations. May include web-search citations (`MediaType.Web`, a URL instead of a line range) if `RAG.EnableWebSearch` is on and local retrieval found nothing — see `docs/config-reference.md`'s `WebSearch` section. |
+| `looma_answer` | `IAnswerUseCase` | Streams generated tokens as progress notifications; final result includes citations. May include web-search citations (`MediaType.Web`, a URL instead of a line range) if `RAG.EnableWebSearch` is on and local retrieval found nothing — see `docs/config-reference.md`'s `WebSearch` section. Optional `think` (bool, default `false`) asks the model to reason before answering — a no-op unless `Models:BaseModel:SupportsThinking` is `true`; see `looma_capabilities` below. |
 | `looma_count` | `ICountUseCase` | Single call, no streaming; returns the raw count as plain text. |
 | `looma_clear_cache` | `IAnswerCache.ClearAsync` | Same operation as the CLI's `clear-cache` command. |
-| `looma_chat` | `IChatCompletionUseCase` | Stateless: caller supplies the full prior-turn history (`historyJson`) on every call. Chat sessions themselves live client-side only — see below. Same web-search fallback as `looma_answer` above. |
+| `looma_chat` | `IChatCompletionUseCase` | Stateless: caller supplies the full prior-turn history (`historyJson`) on every call. Chat sessions themselves live client-side only — see below. Same web-search fallback and `think` parameter as `looma_answer` above. |
 | `looma_transcribe` | `ITranscriptionUseCase` | Single call, no streaming. Audio travels as base64 (`audioBase64`); returns the transcript as plain text. |
 | `looma_caption_image` | `IImageCaptionUseCase` | Single call, no streaming. Image travels as base64 (`imageBase64`); returns `ImageCaptionResult` as JSON. |
 | `looma_extract_document` | `IDocumentExtractionUseCase` | Single call, no streaming. Document travels as base64 (`documentBase64`) plus `fileName` (for its extension); returns extracted plain text. |
+| `looma_capabilities` | `IChatModelCapabilities` | Single call, no streaming, no Qdrant/Ollama round trip — just a config read. Returns `{"supportsThinking":true\|false}`, so a client can decide whether to offer an "Ask"/"Think" toggle before ever calling `looma_answer`/`looma_chat` with `think=true`. |
 
 Document *export* (turning a chat answer into a real .docx/.md/.txt/.pdf
 file, `IDocumentExportUseCase`) has no MCP tool at all, deliberately — it's pure

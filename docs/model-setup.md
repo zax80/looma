@@ -21,11 +21,14 @@ the normal case:
   entirely optional, downloaded the same way if configured at all. See
   "Text→image search" below.
 - **Whisper (audio transcription)** — `Models.SpeechToTextModel`
-  (`./models/whisper-base.bin` by default) is downloaded the same way, from
+  (`./models/whisper-small.bin` by default) is downloaded the same way, from
   `Models.SpeechToTextModel.DownloadUrl`. Not fatal on failure either — only
   the audio half of ingestion needs it. `WhisperAudioTranscriber` fails
   loudly and specifically if a run that actually needs the file finds it
-  missing.
+  missing. `Models.SpeechToTextModel.Language` (default `"auto"`) can force
+  transcription into a specific language instead of relying on Whisper to
+  detect it from the audio — worth setting explicitly for a non-English
+  speaker; see the "Manual fallback — Whisper" section below.
 
 All of this is a direct implementation of the brief's model-provisioning
 design (docs/looma-project-brief.md section 6): "auto-pulled on first run
@@ -112,21 +115,34 @@ the configured default.
 
 ## Manual fallback — Whisper
 
-Download a GGML model (e.g. `ggml-base.bin`, ~140 MB — bigger ones like
-`ggml-small.bin`/`ggml-medium.bin` trade speed for accuracy) from
+Download a GGML model (e.g. `ggml-small.bin`, ~466 MB — the default now;
+`ggml-base.bin` is smaller/faster but noticeably worse on non-English
+languages, `ggml-medium.bin` is bigger/slower but more accurate still) from
 <https://huggingface.co/ggerganov/whisper.cpp/tree/main> and save it as
-`./models/whisper-base.bin`:
+`./models/whisper-small.bin`:
 
 ```powershell
 New-Item -ItemType Directory -Force -Path .\models | Out-Null
 Invoke-WebRequest `
-  -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin" `
-  -OutFile ".\models\whisper-base.bin"
+  -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin" `
+  -OutFile ".\models\whisper-small.bin"
 ```
 
 If you switch to a different-sized model, the file just needs to exist at
 whatever `Models.SpeechToTextModel.ModelPath` points to — `WhisperAudioTranscriber`
 doesn't care which GGML size it is.
+
+### Non-English speakers
+
+If you consistently speak one non-English language to Looma (e.g.
+Bulgarian), set `Models.SpeechToTextModel.Language` to that language's code
+(`"bg"`, etc.) instead of the default `"auto"`. This is separate from model
+size above: auto-detect can fail outright on a short voice question before
+transcription accuracy even enters into it (too little audio to reliably
+tell which language is being spoken), so forcing the language removes that
+failure mode entirely, while a bigger model separately improves
+transcription accuracy for that language once it's correctly identified.
+Both matter; neither substitutes for the other.
 
 ### Audio format support
 

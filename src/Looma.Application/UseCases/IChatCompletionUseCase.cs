@@ -31,6 +31,11 @@ public interface IChatCompletionUseCase
     /// own doc comment for why this must live in the context block rather
     /// than the question text.
     /// </param>
+    /// <param name="thinkingMode">
+    /// See <see cref="IAnswerUseCase.AnswerAsync"/>'s doc comment — same
+    /// default (<see cref="ThinkingMode.Ask"/>) and same no-op-if-unsupported
+    /// behavior.
+    /// </param>
     /// <returns>
     /// Streams the assistant's reply token by token, citations on the
     /// final token — same shape as <see cref="IAnswerUseCase.AnswerAsync"/>.
@@ -39,5 +44,6 @@ public interface IChatCompletionUseCase
         IReadOnlyList<ChatMessageEntry> history,
         string message,
         string? attachmentContext = null,
+        ThinkingMode thinkingMode = ThinkingMode.Ask,
         CancellationToken cancellationToken = default);
 }

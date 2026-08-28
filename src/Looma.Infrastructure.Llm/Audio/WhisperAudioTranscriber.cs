@@ -25,11 +25,25 @@ namespace Looma.Infrastructure.Llm.Audio;
 public sealed class WhisperAudioTranscriber : IAudioTranscriber, IDisposable
 {
     private readonly string _modelPath;
+    private readonly string _language;
     private readonly Lazy<WhisperFactory> _factory;
 
-    public WhisperAudioTranscriber(string modelPath)
+    /// <param name="language">
+    /// A Whisper language code (e.g. <c>"bg"</c>, <c>"en"</c>) to force
+    /// transcription into, or <c>"auto"</c> to let Whisper detect it from
+    /// the audio itself. See
+    /// <see cref="Looma.Infrastructure.Llm.ModelEndpointOptions.Language"/>'s doc comment — auto-detect
+    /// on a short clip (a quick voice question, not a long recording) is a
+    /// real, non-theoretical failure mode for a lower-resource language:
+    /// there's often too little audio for reliable detection before
+    /// transcription quality even enters into it, so forcing the language
+    /// removes that failure mode entirely when the speaker's language is
+    /// known ahead of time.
+    /// </param>
+    public WhisperAudioTranscriber(string modelPath, string language = "auto")
     {
         _modelPath = modelPath;
+        _language = language;
 
         // Lazy, not eager in the constructor — same reasoning as
         // OnnxClipImageEmbeddingGenerator: this is a DI singleton
@@ -51,7 +65,7 @@ public sealed class WhisperAudioTranscriber : IAudioTranscriber, IDisposable
         using var normalizedWav = NormalizeTo16KhzMonoWav(audioBytes);
 
         using var processor = _factory.Value.CreateBuilder()
-            .WithLanguage("auto")
+            .WithLanguage(_language)
             .Build();
 
         await foreach (var result in processor.ProcessAsync(normalizedWav).WithCancellation(cancellationToken).ConfigureAwait(false))

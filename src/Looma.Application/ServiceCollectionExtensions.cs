@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAnswerUseCase, AnswerUseCase>();
         services.AddSingleton<ICountUseCase, CountUseCase>();
         services.AddSingleton<IChatCompletionUseCase, ChatCompletionUseCase>();
+        services.AddSingleton<IChatModelCapabilities, ChatModelCapabilities>();
         services.AddSingleton<ITranscriptionUseCase, TranscriptionUseCase>();
         services.AddSingleton<IImageCaptionUseCase, ImageCaptionUseCase>();
         services.AddSingleton<IDocumentExtractionUseCase, DocumentExtractionUseCase>();

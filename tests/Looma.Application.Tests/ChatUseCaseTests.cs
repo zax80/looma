@@ -128,6 +128,7 @@ public sealed class ChatUseCaseTests
             IReadOnlyList<ChatMessageEntry> history,
             string message,
             string? attachmentContext = null,
+            ThinkingMode thinkingMode = ThinkingMode.Ask,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             foreach (var token in _tokens)
