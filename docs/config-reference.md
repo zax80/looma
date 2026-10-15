@@ -11,6 +11,11 @@ Discovery is simple and explicit for both: `config.json` in the current
 working directory, or an explicit path via `--config <path>`. Neither walks
 up parent directories looking for it.
 
+Don't want to hand-write this file? `looma setup` generates/updates it from
+a handful of high-level answers (domain, location, deployment mode,
+horizontal scale) — see `docs/setup-wizard.md`. This reference document is
+what that wizard calls "advanced settings": anything it doesn't ask about.
+
 ## `DomainName`, `Version`
 
 ```json

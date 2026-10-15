@@ -48,18 +48,18 @@ public static class SetupWizard
         domain ??= Prompt(
             interactive,
             "Domain name (a label; also picks a quality/speed tier for the base model)",
-            existingRoot?["DomainName"]?.GetValue<string>() ?? "Looma");
+            TryGetString(existingRoot, "DomainName") ?? "Looma");
 
         location ??= Prompt(
             interactive,
             "Geographic location (picks the spoken language + a region-tuned model if one exists)",
-            existingRoot?["Models"]?["SpeechToTextModel"]?["Language"]?.GetValue<string>() ?? string.Empty);
+            TryGetString(existingRoot, "Models", "SpeechToTextModel", "Language") ?? string.Empty);
 
         mode ??= PromptChoice(
             interactive,
             "Deployment mode",
             ValidModes,
-            existingRoot?["Deployment"]?["Mode"]?.GetValue<string>() ?? "Standalone");
+            TryGetString(existingRoot, "Deployment", "Mode") ?? "Standalone");
 
         var matchedMode = ValidModes.FirstOrDefault(m => string.Equals(m, mode, StringComparison.OrdinalIgnoreCase));
         if (matchedMode is null)
@@ -75,13 +75,13 @@ public static class SetupWizard
             mcpEndpoint ??= Prompt(
                 interactive,
                 "Remote MCP server endpoint",
-                existingRoot?["Deployment"]?["McpServerEndpoint"]?.GetValue<string>() ?? "https://localhost:3001");
+                TryGetString(existingRoot, "Deployment", "McpServerEndpoint") ?? "https://localhost:3001");
         }
 
         horizontalScale ??= PromptYesNo(
             interactive,
             "Prepare for real horizontal scaling (multiple MCP.Server instances behind a shared queue/cache)?",
-            existingRoot?["Redis"]?["Enabled"]?.GetValue<bool>() ?? false);
+            TryGetBool(existingRoot, "Redis", "Enabled") ?? false);
 
         var answers = new SetupAnswers(domain, location, mode, mcpEndpoint, horizontalScale.Value);
         var recommendation = ModelRecommendationCatalog.Recommend(domain, location);
@@ -120,6 +120,48 @@ public static class SetupWizard
             Console.WriteLine("Note: Redis.Enabled is now true, but the actual horizontal-scaling backend");
             Console.WriteLine("(job queue / pub-sub / shared cache) isn't implemented yet — this only records");
             Console.WriteLine("the intent in config for when it is.");
+        }
+    }
+
+    /// <summary>
+    /// Walks a dotted path through a possibly-hand-edited config.json and
+    /// reads a string at the end of it, returning <c>null</c> instead of
+    /// throwing for any of: a missing intermediate section, an intermediate
+    /// value that exists but isn't actually an object (e.g. someone set
+    /// <c>"Deployment": "Standalone"</c> instead of an object), or a final
+    /// value that isn't actually a string. <c>looma setup</c> explicitly
+    /// promises to work against an already-existing config — a malformed
+    /// one should fall back to defaults, not crash the wizard.
+    /// </summary>
+    private static string? TryGetString(JsonObject? root, params string[] path) => TryGetValue<string>(root, path);
+
+    private static bool? TryGetBool(JsonObject? root, params string[] path) => TryGetValue<bool>(root, path);
+
+    private static T? TryGetValue<T>(JsonObject? root, string[] path)
+    {
+        JsonNode? current = root;
+        foreach (var segment in path)
+        {
+            if (current is not JsonObject currentObject)
+            {
+                return default;
+            }
+
+            current = currentObject[segment];
+        }
+
+        if (current is null)
+        {
+            return default;
+        }
+
+        try
+        {
+            return current.GetValue<T>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            return default;
         }
     }
 
