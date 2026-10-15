@@ -23,3 +23,5 @@ models/
 
 ## Answer cache (local, may contain generated answers/citations)
 .looma/
+
+.cr/
